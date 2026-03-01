@@ -1,1 +1,3 @@
-./datasets/*
+/datasets/Full_datasets
+/datasets/Training_datasets
+/datasets/Validation_datasets
