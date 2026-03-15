@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Model Feed Demo</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div>
+        <h1>Live Model Feed Demo</h1>
+        <p class="subtitle">Updates once per second from a placeholder Python model function.</p>
+      </div>
+      <div class="status-panel">
+        <div class="status-row">
+          <span class="label">Refresh rate</span>
+          <span class="value">1 second</span>
+        </div>
+        <div class="status-row">
+          <span class="label">Threshold</span>
+          <span class="value" id="thresholdValue">90%</span>
+        </div>
+        <div class="status-row">
+          <span class="label">Last update</span>
+          <span class="value" id="lastUpdate">Waiting...</span>
+        </div>
+      </div>
+    </header>
+
+    <section id="alertBanner" class="alert-banner normal">
+      No alerts active.
+    </section>
+
+    <section class="main-grid">
+      <div class="card chart-card">
+        <div class="card-header">
+          <h2>Category Trends</h2>
+          <p>Line graph of percentage values from 0% to 100%</p>
+        </div>
+        <canvas id="chartCanvas" width="1100" height="420"></canvas>
+      </div>
+
+      <div class="card metrics-card">
+        <div class="card-header">
+          <h2>Current Values</h2>
+          <p>Most recent model output</p>
+        </div>
+        <div id="metricsList" class="metrics-list"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-header">
+        <h2>Alert Log</h2>
+        <p>Visible display feature tied to the placeholder alert function</p>
+      </div>
+      <div id="alertLog" class="alert-log">
+        <div class="log-entry muted">No alerts have been triggered yet.</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const categories = ["Reliability", "Safety", "Confidence", "Stability", "Performance"];
+    const colors = {
+      Reliability: "#4f46e5",
+      Safety: "#dc2626",
+      Confidence: "#059669",
+      Stability: "#d97706",
+      Performance: "#0891b2"
+    };
+
+    const historyLimit = 60;
+    const historyData = {};
+    categories.forEach((name) => historyData[name] = []);
+
+    const alertBanner = document.getElementById("alertBanner");
+    const alertLog = document.getElementById("alertLog");
+    const metricsList = document.getElementById("metricsList");
+    const lastUpdate = document.getElementById("lastUpdate");
+    const thresholdValue = document.getElementById("thresholdValue");
+    const canvas = document.getElementById("chartCanvas");
+    const ctx = canvas.getContext("2d");
+
+    function addAlertLog(message) {
+      const emptyState = alertLog.querySelector(".muted");
+      if (emptyState) emptyState.remove();
+
+      const entry = document.createElement("div");
+      entry.className = "log-entry";
+      entry.textContent = message;
+      alertLog.prepend(entry);
+
+      while (alertLog.children.length > 12) {
+        alertLog.removeChild(alertLog.lastChild);
+      }
+    }
+
+    function updateAlertDisplay(alerts, threshold) {
+      thresholdValue.textContent = `${threshold}%`;
+
+      if (alerts.length > 0) {
+        alertBanner.className = "alert-banner active";
+        alertBanner.textContent = `ALERT: ${alerts.join(", ")} exceeded ${threshold}%`;
+        addAlertLog(`${new Date().toLocaleTimeString()}: ${alerts.join(", ")} exceeded ${threshold}%`);
+      } else {
+        alertBanner.className = "alert-banner normal";
+        alertBanner.textContent = "No alerts active.";
+      }
+    }
+
+    function updateMetrics(values) {
+      metricsList.innerHTML = "";
+      categories.forEach((name) => {
+        const percent = values[name].toFixed(2);
+
+        const item = document.createElement("div");
+        item.className = "metric-item";
+
+        item.innerHTML = `
+          <div class="metric-head">
+            <span class="metric-name">${name}</span>
+            <span class="metric-number">${percent}%</span>
+          </div>
+          <div class="meter">
+            <div class="meter-fill" style="width: ${percent}%; background: ${colors[name]};"></div>
+          </div>
+        `;
+
+        metricsList.appendChild(item);
+      });
+    }
+
+    function drawChart() {
+      const width = canvas.width;
+      const height = canvas.height;
+      const padLeft = 54;
+      const padRight = 20;
+      const padTop = 20;
+      const padBottom = 36;
+      const plotWidth = width - padLeft - padRight;
+      const plotHeight = height - padTop - padBottom;
+
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = "#e5e7eb";
+      ctx.lineWidth = 1;
+
+      for (let i = 0; i <= 5; i++) {
+        const y = padTop + (plotHeight * i / 5);
+        ctx.beginPath();
+        ctx.moveTo(padLeft, y);
+        ctx.lineTo(width - padRight, y);
+        ctx.stroke();
+
+        const value = 100 - (i * 20);
+        ctx.fillStyle = "#6b7280";
+        ctx.font = "12px Arial";
+        ctx.fillText(`${value}%`, 8, y + 4);
+      }
+
+      ctx.strokeStyle = "#d1d5db";
+      ctx.beginPath();
+      ctx.moveTo(padLeft, padTop);
+      ctx.lineTo(padLeft, height - padBottom);
+      ctx.lineTo(width - padRight, height - padBottom);
+      ctx.stroke();
+
+      for (let x = 0; x < historyLimit; x += 10) {
+        const xPos = padLeft + (plotWidth * x / (historyLimit - 1));
+        ctx.fillStyle = "#6b7280";
+        ctx.font = "12px Arial";
+        const secondsAgo = historyLimit - 1 - x;
+        ctx.fillText(`-${secondsAgo}s`, xPos - 10, height - 12);
+      }
+
+      categories.forEach((name) => {
+        const points = historyData[name];
+        if (points.length < 2) return;
+
+        ctx.beginPath();
+        ctx.strokeStyle = colors[name];
+        ctx.lineWidth = 2;
+
+        points.forEach((point, index) => {
+          const x = padLeft + (plotWidth * index / (historyLimit - 1));
+          const y = padTop + plotHeight - (point / 100) * plotHeight;
+          if (index === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+
+        ctx.stroke();
+      });
+
+      let legendX = padLeft + 4;
+      const legendY = padTop + 12;
+      categories.forEach((name) => {
+        ctx.fillStyle = colors[name];
+        ctx.fillRect(legendX, legendY - 9, 12, 12);
+        ctx.fillStyle = "#111827";
+        ctx.font = "12px Arial";
+        ctx.fillText(name, legendX + 18, legendY + 1);
+        legendX += ctx.measureText(name).width + 42;
+      });
+    }
+
+    async function fetchFeed() {
+      try {
+        const response = await fetch("/api/feed");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+
+        categories.forEach((name) => {
+          historyData[name].push(payload.values[name]);
+          if (historyData[name].length > historyLimit) {
+            historyData[name].shift();
+          }
+        });
+
+        updateMetrics(payload.values);
+        updateAlertDisplay(payload.alerts, payload.threshold);
+        drawChart();
+
+        lastUpdate.textContent = new Date(payload.timestamp).toLocaleTimeString();
+      } catch (error) {
+        alertBanner.className = "alert-banner active";
+        alertBanner.textContent = `Connection issue: ${error.message}`;
+      }
+    }
+
+    fetchFeed();
+    setInterval(fetchFeed, 1000);
+  </script>
+</body>
+</html>
