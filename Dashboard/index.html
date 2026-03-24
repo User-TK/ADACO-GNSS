@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Network Intrusion Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="left-panel">
+      <section class="panel-card status-card">
+        <div class="status-row">
+          <div class="system-status" id="systemStatusWrap">
+            <span class="label">System Status:</span>
+            <span class="pill" id="systemStatus">NORMAL</span>
+          </div>
+          <div class="threat-indicators">
+            <div class="threat-pill" id="ddosIndicator">DDoS</div>
+            <div class="threat-pill" id="spoofingIndicator">Spoofing</div>
+            <div class="threat-pill" id="jammingIndicator">Jamming</div>
+          </div>
+        </div>
+        <p class="detect-time" id="firstDetected">First detected: --:--:-- -- (-- ago)</p>
+      </section>
+
+      <section class="panel-card model-overview-card">
+        <h2>Model Overview</h2>
+        <div class="stat-line">
+          <span>Confidence Score</span>
+          <span id="confidenceScore">--%</span>
+        </div>
+        <div class="progress-wrap">
+          <div class="progress-fill" id="confidenceBar"></div>
+        </div>
+      </section>
+
+      <section class="panel-card feature-card">
+        <h2>Feature Importances</h2>
+        <div class="feature-bars" id="featureBars"></div>
+      </section>
+
+      <section class="panel-card offenders-card">
+        <h2>Top Offenders</h2>
+        <div class="offender-grid">
+          <div class="offender-item">
+            <span class="offender-label">Spoofing IP</span>
+            <span class="offender-ip" id="spoofingIp">--</span>
+          </div>
+          <div class="offender-item">
+            <span class="offender-label">Jamming IP</span>
+            <span class="offender-ip" id="jammingIp">--</span>
+          </div>
+          <div class="offender-item">
+            <span class="offender-label">DDoS IP</span>
+            <span class="offender-ip" id="ddosIp">--</span>
+          </div>
+        </div>
+      </section>
+    </aside>
+
+    <main class="right-panel">
+      <section class="tab-view active" id="trafficTab" aria-label="Traffic Tab">
+        <div class="traffic-layout">
+          <div class="traffic-top">
+            <div class="mini-chart-card">
+              <h3>Network Traffic</h3>
+              <canvas id="trafficChart" width="400" height="160"></canvas>
+            </div>
+
+            <div class="mini-chart-card">
+              <h3>Attacks</h3>
+              <canvas id="attackChart" width="400" height="160"></canvas>
+            </div>
+
+            <div class="ip-list-card">
+              <h3>Top 3 Source IPs</h3>
+              <ul id="sourceIpList"></ul>
+            </div>
+
+            <div class="ip-list-card">
+              <h3>Top 3 Destination IPs</h3>
+              <ul id="destinationIpList"></ul>
+            </div>
+          </div>
+
+          <div class="traffic-bottom">
+            <div class="log-controls">
+              <input type="text" id="logSearch" placeholder="Search events, IPs, or type..." />
+              <div class="filters" id="filters">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="ddos">DDoS</button>
+                <button class="filter-btn" data-filter="spoofing">Spoofing</button>
+                <button class="filter-btn" data-filter="jamming">Jamming</button>
+              </div>
+            </div>
+            <div class="event-log" id="eventLog"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-view" id="healthTab" aria-label="System Health Tab">
+        <div class="health-layout">
+          <section class="panel-card health-card">
+            <h2>System</h2>
+            <p id="systemUptime">System uptime: --:--:-- (since --/--/-- --:--)</p>
+            <p id="lastUpdated">Last updated: --:--:--</p>
+            <div class="status-line">
+              <span>System Health Status</span>
+              <span class="status-pill healthy" id="systemHealthStatus">HEALTHY</span>
+            </div>
+            <div class="metric-grid" id="systemMetrics"></div>
+          </section>
+
+          <section class="panel-card health-card">
+            <h2>Model Status</h2>
+            <div class="status-line">
+              <span>Model Pipeline</span>
+              <span class="status-pill healthy" id="modelStatus">ACTIVE</span>
+            </div>
+            <div class="metric-grid" id="modelMetrics"></div>
+          </section>
+
+          <section class="panel-card health-card">
+            <h2>Data Status</h2>
+            <div class="status-line">
+              <span>Ingestion Status</span>
+              <span class="status-pill healthy" id="dataStatus">INGESTING</span>
+            </div>
+            <div class="metric-grid" id="dataMetrics"></div>
+          </section>
+        </div>
+      </section>
+
+      <nav class="tab-controls" aria-label="Dashboard Tabs">
+        <button class="tab-btn active" data-tab="trafficTab">Traffic</button>
+        <button class="tab-btn" data-tab="healthTab">System Health</button>
+      </nav>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
