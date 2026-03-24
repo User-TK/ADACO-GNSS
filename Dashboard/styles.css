@@ -172,7 +172,7 @@ p {
 
 .feature-card {
   display: grid;
-  gap: 10px;
+  gap: 4px;
   min-height: 200px;
   min-width: 0;
   overflow: hidden;
@@ -180,20 +180,38 @@ p {
 
 .feature-bars {
   display: grid;
-  gap: 8px;
+  gap: 3px;
   min-height: 0;
+  padding-bottom: 3px;
 }
 
 .feature-row {
   display: grid;
-  grid-template-columns: 110px 1fr 50px;
+  grid-template-columns: minmax(130px, 1.35fr) 1fr 48px;
   align-items: center;
-  gap: 8px;
-  font-size: 0.84rem;
+  gap: 6px;
+  font-size: 0.8rem;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: rgba(248, 252, 253, 0.9);
+  border: 1px solid #e1ecef;
 }
 
-.feature-row span {
+.feature-meta {
+  min-width: 0;
+}
+
+.feature-name {
+  color: #294148;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.feature-reason {
   color: var(--muted);
+  margin-top: 2px;
+  font-size: 0.67rem;
+  line-height: 1.15;
 }
 
 .feature-track {
@@ -207,6 +225,13 @@ p {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #2ec4b6, #0fa3b1);
+}
+
+.feature-score {
+  text-align: right;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  color: #2d4a52;
 }
 
 .offenders-card {
@@ -234,7 +259,7 @@ p {
   font-size: 0.86rem;
 }
 
-.offender-ip {
+.offender-value {
   font-family: "IBM Plex Mono", monospace;
   font-size: 0.86rem;
 }
@@ -265,7 +290,7 @@ p {
 .traffic-layout {
   height: 100%;
   display: grid;
-  grid-template-rows: 40% 60%;
+  grid-template-rows: 60% 40%;
   gap: 12px;
   padding: 12px;
 }
@@ -273,30 +298,54 @@ p {
 .traffic-top {
   min-height: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr 0.8fr 0.8fr;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(0, 1.2fr) minmax(0, 0.8fr);
   gap: 10px;
 }
 
 .mini-chart-card,
 .ip-list-card,
-.traffic-bottom,
-.health-card {
+.traffic-bottom {
   background: rgba(255, 255, 255, 0.88);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.health-card {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 9px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mini-chart-card,
+.ip-list-card {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .mini-chart-card h3,
 .ip-list-card h3,
 .health-card h2 {
-  margin-bottom: 8px;
-  font-size: 0.93rem;
+  margin-bottom: 4px;
+  font-size: 0.9rem;
+}
+
+.chart-caption {
+  color: var(--muted);
+  font-size: 0.64rem;
+  margin-bottom: 3px;
 }
 
 canvas {
+  display: block;
   width: 100%;
-  height: calc(100% - 24px);
+  height: 100%;
 }
 
 .ip-list-card ul {
@@ -304,16 +353,29 @@ canvas {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 7px;
+  gap: 5px;
+  min-height: 0;
+  align-content: start;
 }
 
 .ip-list-card li {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.83rem;
-  padding: 7px;
+  font-size: 0.71rem;
+  padding: 4px 5px;
   border-radius: 8px;
   background: #f3f8f9;
   border: 1px solid #dfebee;
+  line-height: 1.2;
+}
+
+.sat-main {
+  color: #2d4a52;
+}
+
+.sat-sub {
+  color: #5f7b82;
+  margin-top: 2px;
+  font-size: 0.67rem;
 }
 
 .traffic-bottom {
@@ -378,16 +440,20 @@ canvas {
   background: #fdfefe;
 }
 
-.log-item.ddos {
-  border-left-color: #c7363f;
-}
-
 .log-item.spoofing {
   border-left-color: #d39419;
 }
 
 .log-item.jamming {
   border-left-color: #8f4bc9;
+}
+
+.log-item.clock-anomaly {
+  border-left-color: #2b74c7;
+}
+
+.log-item.sat-geometry {
+  border-left-color: #1e8f4d;
 }
 
 .log-head {
@@ -412,13 +478,13 @@ canvas {
 
 .health-card {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .health-card p {
   color: var(--muted);
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.84rem;
+  font-size: 0.79rem;
 }
 
 .status-line {
@@ -448,25 +514,25 @@ canvas {
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(120px, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .metric {
   border: 1px solid #dce7ea;
   border-radius: 9px;
-  padding: 8px;
+  padding: 6px;
   background: #f9fcfc;
 }
 
 .metric .name {
   color: var(--muted);
-  font-size: 0.79rem;
+  font-size: 0.73rem;
 }
 
 .metric .value {
-  margin-top: 2px;
+  margin-top: 1px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.89rem;
+  font-size: 0.82rem;
 }
 
 .tab-controls {
@@ -483,7 +549,8 @@ canvas {
 
 @media (max-width: 1200px) {
   .traffic-top {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(4, minmax(0, auto));
   }
 
   .metric-grid {

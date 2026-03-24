@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Network Intrusion Dashboard</title>
+  <title>GNSS Intrusion Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="styles.css" />
@@ -18,9 +18,9 @@
             <span class="pill" id="systemStatus">NORMAL</span>
           </div>
           <div class="threat-indicators">
-            <div class="threat-pill" id="ddosIndicator">DDoS</div>
             <div class="threat-pill" id="spoofingIndicator">Spoofing</div>
             <div class="threat-pill" id="jammingIndicator">Jamming</div>
+            <div class="threat-pill" id="clockIndicator">Clock Anomaly</div>
           </div>
         </div>
         <p class="detect-time" id="firstDetected">First detected: --:--:-- -- (-- ago)</p>
@@ -46,16 +46,16 @@
         <h2>Top Offenders</h2>
         <div class="offender-grid">
           <div class="offender-item">
-            <span class="offender-label">Spoofing IP</span>
-            <span class="offender-ip" id="spoofingIp">--</span>
+            <span class="offender-label">Spoofing Satellite</span>
+            <span class="offender-value" id="spoofingSat">--</span>
           </div>
           <div class="offender-item">
-            <span class="offender-label">Jamming IP</span>
-            <span class="offender-ip" id="jammingIp">--</span>
+            <span class="offender-label">Jamming Band</span>
+            <span class="offender-value" id="jammingBand">--</span>
           </div>
           <div class="offender-item">
-            <span class="offender-label">DDoS IP</span>
-            <span class="offender-ip" id="ddosIp">--</span>
+            <span class="offender-label">Worst prRes Satellite</span>
+            <span class="offender-value" id="worstPrResSat">--</span>
           </div>
         </div>
       </section>
@@ -66,34 +66,37 @@
         <div class="traffic-layout">
           <div class="traffic-top">
             <div class="mini-chart-card">
-              <h3>Network Traffic</h3>
-              <canvas id="trafficChart" width="400" height="160"></canvas>
+              <h3>RF Band Anomaly (1583/1224)</h3>
+              <p class="chart-caption">X-axis: recent time window | Y-axis: relative power (dB)</p>
+              <canvas id="rfChart"></canvas>
             </div>
 
             <div class="mini-chart-card">
-              <h3>Attacks</h3>
-              <canvas id="attackChart" width="400" height="160"></canvas>
+              <h3>Attack Scores By Type</h3>
+              <p class="chart-caption">X-axis: recent time window | Y-axis: normalized score (0-1)</p>
+              <canvas id="attackScoreChart"></canvas>
             </div>
 
             <div class="ip-list-card">
-              <h3>Top 3 Source IPs</h3>
-              <ul id="sourceIpList"></ul>
+              <h3>Top 3 Anomalous Satellites</h3>
+              <ul id="anomalousSatList"></ul>
             </div>
 
             <div class="ip-list-card">
-              <h3>Top 3 Destination IPs</h3>
-              <ul id="destinationIpList"></ul>
+              <h3>Top 3 Unstable Signals</h3>
+              <ul id="unstableSignalList"></ul>
             </div>
           </div>
 
           <div class="traffic-bottom">
             <div class="log-controls">
-              <input type="text" id="logSearch" placeholder="Search events, IPs, or type..." />
+              <input type="text" id="logSearch" placeholder="Search events, stream, satellite, or type..." />
               <div class="filters" id="filters">
                 <button class="filter-btn active" data-filter="all">All</button>
-                <button class="filter-btn" data-filter="ddos">DDoS</button>
                 <button class="filter-btn" data-filter="spoofing">Spoofing</button>
                 <button class="filter-btn" data-filter="jamming">Jamming</button>
+                <button class="filter-btn" data-filter="clock-anomaly">Clock</button>
+                <button class="filter-btn" data-filter="sat-geometry">DOP</button>
               </div>
             </div>
             <div class="event-log" id="eventLog"></div>

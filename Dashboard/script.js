@@ -2,45 +2,63 @@ const state = {
   systemMode: "normal",
   confidence: 0.0,
   activeThreats: {
-    ddos: false,
     spoofing: false,
     jamming: false,
+    clockAnomaly: false,
+    satGeometry: false,
   },
   firstDetected: null,
   healthStatus: "healthy",
   modelStatus: "active",
   dataStatus: "ingesting",
-  trafficSeries: new Array(30).fill(20),
-  attackSeries: new Array(30).fill(2),
+  rfSeries: {
+    band1583: new Array(30).fill(17),
+    band1224: new Array(30).fill(15),
+  },
+  attackSeries: {
+    spoofing: new Array(30).fill(0.2),
+    jamming: new Array(30).fill(0.15),
+    clockAnomaly: new Array(30).fill(0.1),
+    satGeometry: new Array(30).fill(0.12),
+  },
   logFilter: "all",
   logs: [],
 };
 
 const featureImportanceData = [
-  { name: "Pkt Rate", value: 0.0 },
-  { name: "Src Entropy", value: 0.0 },
-  { name: "Signal SNR", value: 0.0 },
-  { name: "Burst Count", value: 0.0 },
-  { name: "RSSI Drift", value: 0.0 },
-  { name: "Seq Gap", value: 0.0 },
+  { name: "prRes Outlier", value: 0.0, reason: "--" },
+  { name: "Clock Drift", value: 0.0, reason: "--" },
+  { name: "DOP Jump", value: 0.0, reason: "--" },
+  { name: "ECEF Position Jump", value: 0.0, reason: "--" },
+  { name: "C/N0 Drop", value: 0.0, reason: "--" },
+  { name: "Band Power Rise", value: 0.0, reason: "--" },
 ];
 
-const topIps = {
-  source: ["--", "--", "--"],
-  destination: ["--", "--", "--"],
+const gnssTop = {
+  anomalousSats: [
+    { main: "--", sub: "--" },
+    { main: "--", sub: "--" },
+    { main: "--", sub: "--" },
+  ],
+  unstableSignals: [
+    { main: "--", sub: "--" },
+    { main: "--", sub: "--" },
+    { main: "--", sub: "--" },
+  ],
   offenders: {
-    spoofing: "--",
-    jamming: "--",
-    ddos: "--",
+    spoofingSat: "--",
+    jammingBand: "--",
+    worstPrResSat: "--",
   },
 };
 
 const systemStartedAt = new Date();
 systemStartedAt.setHours(systemStartedAt.getHours() - 3);
 
-function randomIp() {
-  const oct = () => Math.floor(Math.random() * 255);
-  return `${oct()}.${oct()}.${oct()}.${oct()}`;
+function randomSatellite() {
+  const gnss = ["GPS", "GLO", "GAL", "BDS"];
+  const svId = Math.floor(1 + Math.random() * 32);
+  return `${gnss[Math.floor(Math.random() * gnss.length)]}-${String(svId).padStart(2, "0")}`;
 }
 
 function formatTime(date) {
@@ -73,23 +91,30 @@ function createFeatureBars() {
     const row = document.createElement("div");
     row.className = "feature-row";
     row.innerHTML = `
-      <span>${feature.name}</span>
+      <div class="feature-meta">
+        <div class="feature-name">${feature.name}</div>
+        <div class="feature-reason">${feature.reason}</div>
+      </div>
       <div class="feature-track"><div class="feature-value" style="width:${Math.round(feature.value * 100)}%"></div></div>
-      <strong>${Math.round(feature.value * 100)}%</strong>
+      <div class="feature-score">${Math.round(feature.value * 100)}%</div>
     `;
     featureBars.appendChild(row);
   });
 }
 
-function renderIpLists() {
-  const source = document.getElementById("sourceIpList");
-  const destination = document.getElementById("destinationIpList");
-  source.innerHTML = topIps.source.map((ip) => `<li>${ip}</li>`).join("");
-  destination.innerHTML = topIps.destination.map((ip) => `<li>${ip}</li>`).join("");
+function renderSignalLists() {
+  const anomalous = document.getElementById("anomalousSatList");
+  const unstable = document.getElementById("unstableSignalList");
+  anomalous.innerHTML = gnssTop.anomalousSats
+    .map((sat) => `<li><div class="sat-main">${sat.main}</div><div class="sat-sub">${sat.sub}</div></li>`)
+    .join("");
+  unstable.innerHTML = gnssTop.unstableSignals
+    .map((signal) => `<li><div class="sat-main">${signal.main}</div><div class="sat-sub">${signal.sub}</div></li>`)
+    .join("");
 
-  document.getElementById("spoofingIp").textContent = topIps.offenders.spoofing;
-  document.getElementById("jammingIp").textContent = topIps.offenders.jamming;
-  document.getElementById("ddosIp").textContent = topIps.offenders.ddos;
+  document.getElementById("spoofingSat").textContent = gnssTop.offenders.spoofingSat;
+  document.getElementById("jammingBand").textContent = gnssTop.offenders.jammingBand;
+  document.getElementById("worstPrResSat").textContent = gnssTop.offenders.worstPrResSat;
 }
 
 function renderMainStatus() {
@@ -106,9 +131,13 @@ function renderMainStatus() {
   confidenceBar.style.width = `${Math.round(state.confidence * 100)}%`;
   confidenceScore.textContent = `${Math.round(state.confidence * 100)}%`;
 
-  ["ddos", "spoofing", "jamming"].forEach((threat) => {
-    const el = document.getElementById(`${threat}Indicator`);
-    el.classList.toggle("active", state.activeThreats[threat]);
+  [
+    ["spoofing", "spoofingIndicator"],
+    ["jamming", "jammingIndicator"],
+    ["clockAnomaly", "clockIndicator"],
+  ].forEach(([key, indicatorId]) => {
+    const el = document.getElementById(indicatorId);
+    el.classList.toggle("active", state.activeThreats[key]);
   });
 
   const detectText = document.getElementById("firstDetected");
@@ -120,42 +149,133 @@ function renderMainStatus() {
   }
 }
 
-function drawSimpleLineChart(canvasId, data, color) {
+function getCanvasContext2D(canvasId) {
   const canvas = document.getElementById(canvasId);
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width;
-  const h = canvas.height;
+  const dpr = window.devicePixelRatio || 1;
+  const displayWidth = Math.max(1, Math.floor(canvas.clientWidth));
+  const displayHeight = Math.max(1, Math.floor(canvas.clientHeight));
+  const targetWidth = Math.floor(displayWidth * dpr);
+  const targetHeight = Math.floor(displayHeight * dpr);
 
-  ctx.clearRect(0, 0, w, h);
-
-  ctx.strokeStyle = "#d6e6e8";
-  ctx.lineWidth = 1;
-  for (let i = 1; i < 4; i += 1) {
-    const y = (h / 4) * i;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
+  if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
   }
 
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const span = Math.max(1, max - min);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w: displayWidth, h: displayHeight };
+}
 
+function drawMultiLineChart(canvasId, lines, options) {
+  const { ctx, w, h } = getCanvasContext2D(canvasId);
+  const margin = { top: 14, right: 8, bottom: 44, left: 36 };
+  const plotW = w - margin.left - margin.right;
+  const plotH = h - margin.top - margin.bottom;
+
+  if (plotW <= 10 || plotH <= 10) {
+    return;
+  }
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#fcffff";
+  ctx.fillRect(0, 0, w, h);
+
+  const yTicks = 4;
+  ctx.strokeStyle = "#deebee";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= yTicks; i += 1) {
+    const y = margin.top + (plotH / yTicks) * i;
+    ctx.beginPath();
+    ctx.moveTo(margin.left, y);
+    ctx.lineTo(w - margin.right, y);
+    ctx.stroke();
+
+    const value = options.yMax - ((options.yMax - options.yMin) * i) / yTicks;
+    ctx.fillStyle = "#5a747d";
+    ctx.font = "10px IBM Plex Mono";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    const yLabel = options.yFormatter ? options.yFormatter(value) : value.toFixed(1);
+    ctx.fillText(yLabel, margin.left - 4, y);
+  }
+
+  ctx.strokeStyle = "#92adb4";
   ctx.beginPath();
-  data.forEach((v, i) => {
-    const x = (w / (data.length - 1)) * i;
-    const y = h - ((v - min) / span) * (h - 10) - 5;
-    if (i === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      ctx.lineTo(x, y);
-    }
+  ctx.moveTo(margin.left, margin.top);
+  ctx.lineTo(margin.left, h - margin.bottom);
+  ctx.lineTo(w - margin.right, h - margin.bottom);
+  ctx.stroke();
+
+  const xTicks = 4;
+  const totalSeconds = Math.round((lines[0].data.length - 1) * 2.2);
+  for (let i = 0; i <= xTicks; i += 1) {
+    const x = margin.left + (plotW / xTicks) * i;
+    ctx.strokeStyle = "#deebee";
+    ctx.beginPath();
+    ctx.moveTo(x, margin.top);
+    ctx.lineTo(x, h - margin.bottom);
+    ctx.stroke();
+
+    ctx.fillStyle = "#5a747d";
+    ctx.font = "10px IBM Plex Mono";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    const remaining = Math.round(totalSeconds * (1 - i / xTicks));
+    ctx.fillText(remaining === 0 ? "now" : `-${remaining}s`, x, h - margin.bottom + 3);
+  }
+
+  lines.forEach((line) => {
+    ctx.beginPath();
+    line.data.forEach((value, i) => {
+      const x = margin.left + (plotW / (line.data.length - 1)) * i;
+      const ratio = (value - options.yMin) / (options.yMax - options.yMin || 1);
+      const y = margin.top + (1 - ratio) * plotH;
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+
+    ctx.strokeStyle = line.color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const endValue = line.data[line.data.length - 1];
+    const endX = w - margin.right;
+    const endRatio = (endValue - options.yMin) / (options.yMax - options.yMin || 1);
+    const endY = margin.top + (1 - endRatio) * plotH;
+    ctx.beginPath();
+    ctx.fillStyle = line.color;
+    ctx.arc(endX, endY, 2.2, 0, Math.PI * 2);
+    ctx.fill();
   });
 
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  let legendX = margin.left;
+  lines.forEach((line) => {
+    ctx.strokeStyle = line.color;
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(legendX, 8);
+    ctx.lineTo(legendX + 11, 8);
+    ctx.stroke();
+    ctx.fillStyle = "#48656d";
+    ctx.font = "10px IBM Plex Mono";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(line.name, legendX + 14, 8);
+    legendX += Math.min(88, line.name.length * 7 + 24);
+  });
+
+  ctx.save();
+  ctx.translate(10, margin.top + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = "#5a747d";
+  ctx.font = "10px IBM Plex Mono";
+  ctx.textAlign = "center";
+  ctx.fillText(options.yLabel, 0, 0);
+  ctx.restore();
 }
 
 function renderLogs() {
@@ -165,7 +285,7 @@ function renderLogs() {
   const visible = state.logs.filter((log) => {
     const filterHit = state.logFilter === "all" || log.type === state.logFilter;
     const searchHit =
-      `${log.message} ${log.src} ${log.dst} ${log.type}`.toLowerCase().includes(logSearch);
+      `${log.message} ${log.stream} ${log.satellite} ${log.type}`.toLowerCase().includes(logSearch);
     return filterHit && searchHit;
   });
 
@@ -182,7 +302,7 @@ function renderLogs() {
           <span>${log.ts}</span>
           <span>${log.type.toUpperCase()}</span>
         </div>
-        <div class="log-text">${log.message} | src: ${log.src} -> dst: ${log.dst}</div>
+        <div class="log-text">${log.message} | ${log.stream} | sat: ${log.satellite}</div>
       </article>
     `,
     )
@@ -258,6 +378,9 @@ function renderHealth() {
   const dropRate = `${(Math.random() * 0.6).toFixed(2)}%`;
   const lagSec = `${(Math.random() * 3.5).toFixed(2)} s`;
   const queueUtil = `${(24 + Math.random() * 34).toFixed(1)}%`;
+  const pvtRate = `${(8 + Math.random() * 4).toFixed(1)} Hz`;
+  const satRate = `${(4 + Math.random() * 2).toFixed(1)} Hz`;
+  const rawxRate = `${(8 + Math.random() * 5).toFixed(1)} Hz`;
 
   document.getElementById("systemMetrics").innerHTML = metricsTemplate([
     { name: "CPU Usage", value: cpu },
@@ -282,26 +405,28 @@ function renderHealth() {
     { name: "Packets Dropped/s", value: packetsDrop },
     { name: "Drop Rate", value: dropRate },
     { name: "Ingestion Lag", value: lagSec },
-    { name: "Data Queue Util", value: queueUtil },
-    { name: "Parser Errors", value: `${Math.floor(Math.random() * 2)}` },
+    { name: "NAV-PVT Rate", value: pvtRate },
+    { name: "RAWX Rate", value: rawxRate },
   ]);
 }
 
 function pushRandomLog() {
-  const types = ["ddos", "spoofing", "jamming"];
+  const types = ["spoofing", "jamming", "clock-anomaly", "sat-geometry"];
   const type = types[Math.floor(Math.random() * types.length)];
   const now = new Date();
+  const streams = ["MON-SPAN", "NAV-CLOCK", "NAV-DOP", "NAV-SAT", "NAV-PVT", "RXM-RAWX"];
   const messages = {
-    ddos: "Abnormal packet burst detected",
-    spoofing: "Spoof signature matched source identity anomaly",
-    jamming: "Signal interference pattern exceeded baseline",
+    spoofing: "Spoof signature matched pseudorange residual inconsistency",
+    jamming: "RF power abnormal rise detected in protected GNSS band",
+    "clock-anomaly": "Receiver clock bias/drift exceeded expected baseline",
+    "sat-geometry": "DOP jump suggests geometry inconsistency",
   };
 
   state.logs.unshift({
     ts: formatTime(now),
     type,
-    src: randomIp(),
-    dst: randomIp(),
+    stream: streams[Math.floor(Math.random() * streams.length)],
+    satellite: randomSatellite(),
     message: messages[type],
   });
 
@@ -311,15 +436,43 @@ function pushRandomLog() {
 }
 
 function simulateMainState() {
-  const dangerMode = Math.random() > 0.7;
-  state.systemMode = dangerMode ? "danger" : "normal";
+  const dangerMode = Math.random() > 0.68;
 
-  state.activeThreats.ddos = dangerMode && Math.random() > 0.45;
-  state.activeThreats.spoofing = dangerMode && Math.random() > 0.5;
-  state.activeThreats.jamming = dangerMode && Math.random() > 0.55;
+  const addPoint = (series, delta, min, max) => {
+    const next = Math.max(min, Math.min(max, series[series.length - 1] + (Math.random() * delta * 2 - delta)));
+    series.push(next);
+    series.shift();
+  };
+
+  addPoint(state.rfSeries.band1583, dangerMode ? 2.9 : 1.4, 6, 38);
+  addPoint(state.rfSeries.band1224, dangerMode ? 2.4 : 1.2, 5, 34);
+
+  const spoofScore = dangerMode ? 0.55 + Math.random() * 0.4 : Math.random() * 0.45;
+  const jamScore = dangerMode ? 0.52 + Math.random() * 0.42 : Math.random() * 0.4;
+  const clockScore = dangerMode ? 0.48 + Math.random() * 0.44 : Math.random() * 0.35;
+  const dopScore = dangerMode ? 0.46 + Math.random() * 0.42 : Math.random() * 0.35;
+
+  state.attackSeries.spoofing.push(spoofScore);
+  state.attackSeries.spoofing.shift();
+  state.attackSeries.jamming.push(jamScore);
+  state.attackSeries.jamming.shift();
+  state.attackSeries.clockAnomaly.push(clockScore);
+  state.attackSeries.clockAnomaly.shift();
+  state.attackSeries.satGeometry.push(dopScore);
+  state.attackSeries.satGeometry.shift();
+
+  state.activeThreats.spoofing = spoofScore > 0.66;
+  state.activeThreats.jamming = jamScore > 0.66;
+  state.activeThreats.clockAnomaly = clockScore > 0.66;
+  state.activeThreats.satGeometry = dopScore > 0.66;
 
   const anyThreat =
-    state.activeThreats.ddos || state.activeThreats.spoofing || state.activeThreats.jamming;
+    state.activeThreats.spoofing
+    || state.activeThreats.jamming
+    || state.activeThreats.clockAnomaly
+    || state.activeThreats.satGeometry;
+
+  state.systemMode = anyThreat ? "danger" : "normal";
 
   if (anyThreat && !state.firstDetected) {
     state.firstDetected = new Date();
@@ -328,27 +481,63 @@ function simulateMainState() {
     state.firstDetected = null;
   }
 
-  state.confidence = dangerMode ? 0.76 + Math.random() * 0.2 : 0.35 + Math.random() * 0.22;
+  state.confidence = Math.max(spoofScore, jamScore, clockScore, dopScore);
 
-  featureImportanceData.forEach((feature) => {
-    feature.value = Math.random() * 0.95;
-  });
+  const prRes = 28 + Math.random() * 86;
+  const clkDrift = 0.15 + Math.random() * 1.95;
+  const dopJump = 0.2 + Math.random() * 2.7;
+  const ecefJump = 0.8 + Math.random() * 28;
+  const cnoDrop = 1.5 + Math.random() * 16;
+  const bandRise = 2 + Math.random() * 19;
 
-  topIps.source = [randomIp(), randomIp(), randomIp()];
-  topIps.destination = [randomIp(), randomIp(), randomIp()];
+  featureImportanceData[0].value = Math.min(1, prRes / 95);
+  featureImportanceData[0].reason = `NAV-SAT max prRes ${prRes.toFixed(1)} m indicates inconsistent pseudorange.`;
+  featureImportanceData[1].value = Math.min(1, clkDrift / 2);
+  featureImportanceData[1].reason = `NAV-CLOCK clkD ${clkDrift.toFixed(2)} ns/s departs from stable drift profile.`;
+  featureImportanceData[2].value = Math.min(1, dopJump / 2.8);
+  featureImportanceData[2].reason = `NAV-DOP pDOP delta ${dopJump.toFixed(2)} suggests abrupt geometry changes.`;
+  featureImportanceData[3].value = Math.min(1, ecefJump / 30);
+  featureImportanceData[3].reason = `NAV-POSECEF jump ${ecefJump.toFixed(1)} m exceeds smooth-track expectation.`;
+  featureImportanceData[4].value = Math.min(1, cnoDrop / 17);
+  featureImportanceData[4].reason = `NAV-SAT mean C/N0 drop ${cnoDrop.toFixed(1)} dB-Hz degrades confidence.`;
+  featureImportanceData[5].value = Math.min(1, bandRise / 20);
+  featureImportanceData[5].reason = `MON-SPAN band rise ${bandRise.toFixed(1)} dB over baseline matches jamming.`;
 
-  topIps.offenders.spoofing = state.activeThreats.spoofing ? randomIp() : "--";
-  topIps.offenders.jamming = state.activeThreats.jamming ? randomIp() : "--";
-  topIps.offenders.ddos = state.activeThreats.ddos ? randomIp() : "--";
+  gnssTop.anomalousSats = [
+    {
+      main: randomSatellite(),
+      sub: `prRes ${prRes.toFixed(1)} m | cno ${(22 + Math.random() * 7).toFixed(1)} dB-Hz`,
+    },
+    {
+      main: randomSatellite(),
+      sub: `DOP-linked residual ${(38 + Math.random() * 45).toFixed(1)} m | elev ${(6 + Math.random() * 16).toFixed(1)} deg`,
+    },
+    {
+      main: randomSatellite(),
+      sub: `az ${(90 + Math.random() * 190).toFixed(0)} deg | prRes ${(35 + Math.random() * 55).toFixed(1)} m`,
+    },
+  ];
 
-  const addPoint = (series, delta, min, max) => {
-    const next = Math.max(min, Math.min(max, series[series.length - 1] + (Math.random() * delta * 2 - delta)));
-    series.push(next);
-    series.shift();
-  };
+  gnssTop.unstableSignals = [
+    {
+      main: "L1 C/N0 Variance",
+      sub: `${(8 + Math.random() * 5).toFixed(1)} dB over 60s rolling window`,
+    },
+    {
+      main: "RAWX Doppler Drift",
+      sub: `${(0.5 + Math.random() * 2.5).toFixed(2)} Hz/s across tracked satellites`,
+    },
+    {
+      main: "Carrier Phase Jump",
+      sub: `${(0.2 + Math.random() * 1.4).toFixed(2)} cycles median jump`,
+    },
+  ];
 
-  addPoint(state.trafficSeries, 9, 8, 95);
-  addPoint(state.attackSeries, 2.5, 0, 28);
+  gnssTop.offenders.spoofingSat = state.activeThreats.spoofing ? randomSatellite() : "--";
+  gnssTop.offenders.jammingBand = state.activeThreats.jamming
+    ? (Math.random() > 0.5 ? "1583 MHz" : "1224 MHz")
+    : "--";
+  gnssTop.offenders.worstPrResSat = randomSatellite();
 
   if (dangerMode || Math.random() > 0.6) {
     pushRandomLog();
@@ -365,9 +554,35 @@ function simulateMainState() {
 function renderAll() {
   renderMainStatus();
   createFeatureBars();
-  renderIpLists();
-  drawSimpleLineChart("trafficChart", state.trafficSeries, "#0f9ea8");
-  drawSimpleLineChart("attackChart", state.attackSeries, "#c7363f");
+  renderSignalLists();
+  drawMultiLineChart(
+    "rfChart",
+    [
+      { name: "1583MHz", data: state.rfSeries.band1583, color: "#0f9ea8" },
+      { name: "1224MHz", data: state.rfSeries.band1224, color: "#2b74c7" },
+    ],
+    {
+      yMin: 0,
+      yMax: 40,
+      yLabel: "Power (dB)",
+      yFormatter: (v) => `${Math.round(v)}`,
+    },
+  );
+  drawMultiLineChart(
+    "attackScoreChart",
+    [
+      { name: "Spoof", data: state.attackSeries.spoofing, color: "#d39419" },
+      { name: "Jam", data: state.attackSeries.jamming, color: "#8f4bc9" },
+      { name: "Clock", data: state.attackSeries.clockAnomaly, color: "#2b74c7" },
+      { name: "DOP", data: state.attackSeries.satGeometry, color: "#1e8f4d" },
+    ],
+    {
+      yMin: 0,
+      yMax: 1,
+      yLabel: "Risk Score",
+      yFormatter: (v) => v.toFixed(1),
+    },
+  );
   renderLogs();
   renderHealth();
 }
@@ -420,6 +635,10 @@ function boot() {
     renderMainStatus();
     renderHealth();
   }, 1000);
+
+  window.addEventListener("resize", () => {
+    renderAll();
+  });
 }
 
 boot();
