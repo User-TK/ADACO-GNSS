@@ -7,7 +7,8 @@ from sklearn.model_selection import train_test_split
 
 # read_data, get_df_shape, data_split are the same as HW3
 def read_data(filename: str) -> pd.DataFrame:
-    d = pd.read_csv(filename)
+    # d = pd.read_csv(filename)
+    d = pd.read_json(filename)#need to import all relevant data from both categories
     df = pd.DataFrame(data=d)
     return df
 
