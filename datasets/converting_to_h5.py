@@ -5,6 +5,9 @@ import numpy as np
 from pathlib import Path
 from io import TextIOWrapper
 
+#Before running this Mihir, You should run this in terminal to make sure the file structure for the data is in the correct place: Get-ChildItem "~Name_Of_Repo\datasets\Dataset"
+
+
 # ── CONFIG ───────────────────────────────────────────────────────────────
 BASE_PATH = Path("Dataset")
 
