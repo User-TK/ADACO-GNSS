@@ -1,0 +1,17 @@
+# ADACO-GNSS Project Dependencies
+# Install with: pip install -r requirements.txt
+ 
+# HDF5 file support
+h5py>=3.10.0
+ 
+# Numerical computing (required by h5py and the pipeline)
+numpy>=1.26.0
+ 
+# Deep learning (for model training later)
+torch>=2.2.0
+ 
+# Machine learning baseline models
+scikit-learn>=1.4.0
+ 
+# Data visualization (for inspection/debugging)
+matplotlib>=3.8.0
