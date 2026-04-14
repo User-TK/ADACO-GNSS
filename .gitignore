@@ -3,3 +3,6 @@
 /datasets/Validation_datasets
 /datasets/gnss_dataset.h5
 /datasets/dataset
+*.pkl
+*.h5
+
