@@ -1,9 +1,12 @@
 import numpy as np
 import pandas as pd
+import h5py
 from typing import Tuple
 import matplotlib.pyplot as plt
 from sklearn import datasets
 from sklearn.model_selection import train_test_split
+
+
 
 # read_data, get_df_shape, data_split are the same as HW3
 def read_data(filename: str) -> pd.DataFrame:
@@ -87,13 +90,40 @@ class NN:
         return (O > 0.5).astype(int)
     
 if __name__ == "__main__":
+    # ----- 1. LOAD DATA ------------
+    with h5py.File("gnss_dataset.h5", "r") as hf:
+        # labels = hf["label"][:]       # loads full array into memory
+        # pvt    = hf["nav_pvt"][:]
+        
+        labels = np.copy(hf["label"][:])
+        X = np.hstack([
+            hf["spectrum_01"][:],       # (N, 256)
+            hf["spectrum_02 "][:],     # (N, 256)
+        ])  # final shape: (N, 30)
+# print("Loading data...")
+#     with h5py.File(H5_PATH, "r") as hf:
+#         days  = hf["day"][:]
+#         hours = hf["hour"][:]
+        
+#         # Store the native labels directly into memory while the file is open
+#         native_labels = hf["label"][:]
+
+#         # only use scalar features for RF — no spectra or matrices yet
+#         X = np.hstack([
+#             hf["nav_pvt"][:],       # (N, 15)
+#             hf["nav_clock"][:],     # (N, 4)
+#             hf["nav_dop"][:],       # (N, 7)
+#             hf["nav_posecef"][:]    # (N, 4)
+#         ])  # final shape: (N, 30)
+
+
     def accuracy(t, y_pred):
         accuracy = np.sum(t == y_pred) / len(t)
         return accuracy
 
-    # Read the data
-    train_df = read_data("./compiled_radio_data.csv")#need to add real data path
-    test_df = read_data("./compiled_radio_data.csv")
+    # # Read the data
+    # train_df = read_data("./compiled_radio_data.csv")#need to add real data path
+    # test_df = read_data("./compiled_radio_data.csv")
     
     X, t =  extract_features_label(train_df)
     X_test, t_test = extract_features_label(test_df)
