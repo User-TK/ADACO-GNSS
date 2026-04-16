@@ -122,11 +122,12 @@ if __name__ == "__main__":
         return accuracy
 
     # # Read the data
-    # train_df = read_data("./compiled_radio_data.csv")#need to add real data path
-    # test_df = read_data("./compiled_radio_data.csv")
+    # train_df = read_data("./training_radio_data.csv")#need to add real data path
+    # test_df = read_data("./testing_radio_data.csv")
     
-    X, t =  extract_features_label(train_df)
-    X_test, t_test = extract_features_label(test_df)
+    # X, t =  extract_features_label(train_df)
+    # X_test, t_test = extract_features_label(test_df)
+    
 
     t = t.values.reshape([len(t),1])
     t_test = t_test.values.reshape([len(t_test),1])
