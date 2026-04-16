@@ -4,5 +4,9 @@
 /datasets/gnss_dataset.h5
 /datasets/dataset
 *.pkl
-*.h5
 
+#for me only
+
+/inspect_attacked.py
+/temp_model.py
+__pycache__/

@@ -1,8 +1,13 @@
+import sys
+from pathlib import Path
 import h5py
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, roc_auc_score, confusion_matrix
 import joblib
+#meant to make sure project root is on the path so package's for dataset is importable
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from datasets.attack_labeler import compute_labels_batch
 
 # replace with your path to the dataset
 H5_PATH = r"F:\GeekSquadBackUp\Users\bobgo\dev\ADACO-GNSS-1\datasets\gnss_dataset.h5"
@@ -13,8 +18,6 @@ with h5py.File(H5_PATH, "r") as hf:
     days  = hf["day"][:]
     hours = hf["hour"][:]
     
-    # Store the native labels directly into memory while the file is open
-    native_labels = hf["label"][:]
 
     # only use scalar features for RF — no spectra or matrices yet
     X = np.hstack([
@@ -25,7 +28,7 @@ with h5py.File(H5_PATH, "r") as hf:
     ])  # final shape: (N, 30)
 
 # ------ 2. INFER SECONDS --------------
-print("Inferring seconds...")
+print("Inferring seconds within each hour...")
 N = len(days)
 seconds = np.zeros(N, dtype=np.int32)
 for hour in range(24):
@@ -35,29 +38,21 @@ for hour in range(24):
         seconds[idx] = np.arange(len(idx))
 
 # ------ 3. APPLY EXACT TIMESTAMPS FROM THE TABLE ------------
+# Now uses exact time stamps from Table 13 of Wang et al (2024).
+#labels: 0 = clean, 1 = spoofing, 2 = jamming
 print("Applying labels based on native H5 data and exact table times...")
 
 # Copy the labels we pulled from the file earlier
-labels = np.copy(native_labels)
+labels = compute_labels_batch(days, hours, seconds)
 
-# 1. Spoofing: 12:00:00 to 16:50:00 (3000 seconds into the hour)
-is_spoofing = (native_labels == 1) & (days == b"1221") & (
-    ((hours >= 12) & (hours < 16)) | 
-    ((hours == 16) & (seconds <= 3000))
-)
 
-# 2. Jamming: 16:51:00 (3060 seconds) to 17:21:00
-is_jamming = (native_labels == 1) & (days == b"1221") & (
-    ((hours == 16) & (seconds >= 3060)) | 
-    ((hours == 17) & (seconds <= 1260))
-)
 
-# Assign the new multi-class values
-labels[is_spoofing] = 1
-labels[is_jamming]  = 2
+is_spoofing = (labels==1)
+
+is_jamming = (labels==2)
 
 # sanity check for knowing the distribution of each label
-print(f"\nFull dataset — Clean: {(labels==0).sum():,} | Spoofing: {(labels==1).sum():,} | Jamming: {(labels==2).sum():,}")
+print(f"\nFull dataset -- Clean: {(labels==0).sum():,} | Spoofing: {(labels==1).sum():,} | Jamming: {(labels==2).sum():,}")
 # ---- 4. SPLIT DATA ---------
 CLEAN_TEST_DAYS  = [b"29", b"30"]
 CLEAN_TRAIN_DAYS = [b"12", b"13", b"14", b"15", b"16", b"17", b"18",
@@ -82,14 +77,13 @@ test_mask  = clean_test  | spoof_test  | jam_test
 X_train, y_train = X[train_mask], labels[train_mask]
 X_test,  y_test  = X[test_mask],  labels[test_mask]
 
-print(f"Train: {len(X_train):,} samples")
-print(f"Test:  {len(X_test):,}  samples")
-print(f"Train — Clean: {(y_train==0).sum():,} | Spoofing: {(y_train==1).sum():,} | Jamming: {(y_train==2).sum():,}")
-
-print(f"Test  — Clean: {(y_test==0).sum():,}  | Spoofing: {(y_test==1).sum():,}  | Jamming: {(y_test==2).sum():,}")
+print(f"\nTrain: {len(X_train):,} samples")
+print(f"  Clean: {(y_train==0).sum():,} | Spoofing: {(y_train==1).sum():,} | Jamming: {(y_train==2).sum():,}")
+print(f"Test:  {len(X_test):,} samples")
+print(f"  Clean: {(y_test==0).sum():,} | Spoofing: {(y_test==1).sum():,} | Jamming: {(y_test==2).sum():,}")
 
 # ---- 5. TRAIN ----
-print("Training Random Forest...")
+print("\n Training Random Forest...")
 clf = RandomForestClassifier(
     n_estimators=100,
     class_weight="balanced",   # handles the 19:1 imbalance
@@ -134,5 +128,6 @@ for i, idx in enumerate(top10):
     print(f"  {i+1}. {feature_names[idx]:<25} {importances[idx]:.4f}")
 
 # --- 8. SAVE MODEL ----
+
 joblib.dump(clf, "rf_baseline.pkl")
 print("\nModel saved to models/rf_baseline.pkl")
