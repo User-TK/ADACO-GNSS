@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, confusion_matrix
 
 # replace with your path to the dataset
-H5_PATH = r"..\datasets\gnss_dataset.h5"
+H5_PATH = r"datasets/gnss_dataset.h5"
 
 
 # ---------- activation helpers ----------

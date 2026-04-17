@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from datasets.attack_labeler import compute_labels_batch
 
 # replace with your path to the dataset
-H5_PATH = r"F:\GeekSquadBackUp\Users\bobgo\dev\ADACO-GNSS-1\datasets\gnss_dataset.h5"
+H5_PATH = r"datasets/gnss_dataset.h5"
 
 # ----- 1. LOAD DATA ------------
 print("Loading data...")
