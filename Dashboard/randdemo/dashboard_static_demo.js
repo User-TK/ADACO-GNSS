@@ -1,5 +1,4 @@
 console.log("dashboard JS loaded");
-const API_BASE = "http://127.0.0.1:8000";
 const state = {
   systemMode: "normal",
   confidence: 0.22,
@@ -22,6 +21,67 @@ const state = {
 
 const urlParams = new URLSearchParams(window.location.search);
 const initialStartSample = Number.parseInt(urlParams.get("start") ?? "0", 10);
+
+const DEMO_TOTAL = 10000;
+let demoCursor = Number.isFinite(initialStartSample) && initialStartSample >= 0 ? initialStartSample : 0;
+
+function rand(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+function normalizeProbabilities(clean, spoofing, jamming) {
+  const total = clean + spoofing + jamming || 1;
+  return {
+    Clean: clean / total,
+    Spoofing: spoofing / total,
+    Jamming: jamming / total,
+  };
+}
+
+function makeRandomDemoSample(index) {
+  const roll = Math.random();
+  let classId;
+  let label;
+  let probabilities;
+  let confidence;
+
+  probabilities = normalizeProbabilities(rand(0, 100), rand(0, 100), rand(0, 100));
+  if (roll < 0.62) {
+    classId = 0;
+    label = "Clean";
+    confidence = probabilities.Clean;
+  } else if (roll < 0.78) {
+    classId = 1;
+    label = "Spoofing";
+    confidence = probabilities.Spoofing;
+  } else if (roll < 0.94) {
+    classId = 2;
+    label = "Jamming";
+    confidence = probabilities.Jamming;
+  } else {
+    classId = 3;
+    label = "Spoofing + Jamming";
+    confidence = Math.min(1, probabilities.Spoofing + probabilities.Jamming);
+  }
+
+  const combinedAttack = clamp(probabilities.Spoofing + probabilities.Jamming, 0, 1);
+
+  return {
+    index,
+    total: DEMO_TOTAL,
+    day: 1 + Math.floor((index / 24) % 7),
+    hour: index % 24,
+    prediction: {
+      class_id: classId,
+      label,
+      confidence,
+      probabilities,
+    },
+    derived: {
+      combined_attack: combinedAttack,
+    },
+  };
+}
 
 function formatTime(date) {
   return date.toLocaleTimeString([], {
@@ -253,46 +313,22 @@ function renderAll() {
 }
 
 async function fetchNextSample() {
-  const response = await fetch(`${API_BASE}/api/next`, {
-    headers: {
-      Accept: "application/json",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`API request failed with ${response.status}`);
-  }
-
-  return response.json();
+  const sample = makeRandomDemoSample(demoCursor % DEMO_TOTAL);
+  demoCursor = (demoCursor + 1) % DEMO_TOTAL;
+  return sample;
 }
 
 async function fetchNextSampleFrom(index) {
-  const response = await fetch(`${API_BASE}/api/next?start=${encodeURIComponent(index)}`, {
-    headers: {
-      Accept: "application/json",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`API request failed with ${response.status}`);
-  }
-
-  return response.json();
+  const safeIndex = Number.isFinite(index) && index >= 0 ? index : 0;
+  const sample = makeRandomDemoSample(safeIndex % DEMO_TOTAL);
+  demoCursor = (safeIndex + 1) % DEMO_TOTAL;
+  return sample;
 }
 
 async function resetStream(index) {
-  const response = await fetch(`${API_BASE}/api/reset?index=${encodeURIComponent(index)}`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Reset failed with ${response.status}`);
-  }
-
-  return response.json();
+  const safeIndex = Number.isFinite(index) && index >= 0 ? index : 0;
+  demoCursor = safeIndex % DEMO_TOTAL;
+  return { cursor: demoCursor };
 }
 
 function boot() {
@@ -311,7 +347,7 @@ function boot() {
       ingestSample(sample);
       renderAll();
     } catch (error) {
-      state.currentPrediction = "Waiting for backend";
+      state.currentPrediction = "Demo generator unavailable";
       state.systemMode = "normal";
       renderStatus();
       console.error(error);
