@@ -24,13 +24,21 @@
             <div class="threat-indicators">
               <span class="threat-pill" id="spoofingIndicator">Spoofing</span>
               <span class="threat-pill" id="jammingIndicator">Jamming</span>
-              <span class="threat-pill" id="neitherIndicator">Neither</span>
+              <span class="threat-pill" id="neitherIndicator">Safe</span>
               <span class="threat-pill" id="bothIndicator">Both</span>
             </div>
           </div>
           <div class="meta-row">
             <span class="meta-label">First detected</span>
             <span class="meta-value" id="firstDetected">--:--:-- -- (-- ago)</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Current frame</span>
+            <span class="meta-value" id="currentFrame">--</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Prediction</span>
+            <span class="meta-value" id="currentPrediction">--</span>
           </div>
         </div>
       </article>
@@ -41,7 +49,15 @@
           <span class="confidence-value" id="confidenceScore">0%</span>
         </div>
 
-        <div class="overview-copy">Overall attack confidence across the active detection pipeline.</div>
+        <div class="overview-copy">Live predictions from gnss_dataset.h5 streamed through cnn_best_gpu_run1.pt.</div>
+
+        <div class="meta-row">
+          <span class="meta-label">Start sample</span>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <input id="startSampleInput" type="number" min="0" step="1" value="0" style="width: 120px; padding: 8px 10px; border-radius: 10px; border: 1px solid #d4e3e5; font-family: 'IBM Plex Mono', monospace; font-size: 0.9rem;" />
+            <button id="startSampleButton" type="button" style="padding: 8px 12px; border-radius: 10px; border: 1px solid #bce6ce; background: #e6f7ee; color: #1e8f4d; font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; cursor: pointer;">Jump</button>
+          </div>
+        </div>
 
         <div class="progress-wrap" aria-label="Confidence score bar">
           <div class="progress-fill" id="confidenceBar"></div>

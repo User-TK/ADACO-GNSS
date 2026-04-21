@@ -1,6 +1,8 @@
 const state = {
   systemMode: "normal",
   confidence: 0.22,
+  currentFrame: 0,
+  currentPrediction: "Waiting for data",
   activeThreats: {
     spoofing: false,
     jamming: false,
@@ -15,6 +17,9 @@ const state = {
     both: new Array(30).fill(0.1),
   },
 };
+
+const urlParams = new URLSearchParams(window.location.search);
+const initialStartSample = Number.parseInt(urlParams.get("start") ?? "0", 10);
 
 function formatTime(date) {
   return date.toLocaleTimeString([], {
@@ -52,6 +57,9 @@ function renderStatus() {
 
   confidenceBar.style.width = `${Math.round(state.confidence * 100)}%`;
   confidenceScore.textContent = `${Math.round(state.confidence * 100)}%`;
+
+  document.getElementById("currentFrame").textContent = state.currentFrame;
+  document.getElementById("currentPrediction").textContent = state.currentPrediction;
 
   [
     ["spoofing", "spoofingIndicator"],
@@ -91,10 +99,9 @@ function getCanvasContext2D(canvasId) {
 
 function drawAttackChart() {
   const lines = [
-    { name: "Spoofing", data: state.attackSeries.spoofing, color: "#d39419" },
-    { name: "Jamming", data: state.attackSeries.jamming, color: "#8f4bc9" },
-    { name: "Neither", data: state.attackSeries.neither, color: "#2b74c7" },
-    { name: "Both", data: state.attackSeries.both, color: "#2b74c7" },
+    { name: "Spoofing", data: state.attackSeries.spoofing, color: "#0f766e" },
+    { name: "Jamming", data: state.attackSeries.jamming, color: "#b45309" },
+    { name: "Attack", data: state.attackSeries.both, color: "#14532d" },
   ];
 
   const { ctx, w, h } = getCanvasContext2D("attackScoreChart");
@@ -208,27 +215,27 @@ function updateSeries(series, nextValue) {
   series.shift();
 }
 
-function simulateState() {
-  const elevated = Math.random() > 0.66;
-
-  const spoofScore = elevated ? 0.5 + Math.random() * 0.42 : 0.1 + Math.random() * 0.34;
-  const jamScore = elevated ? 0.44 + Math.random() * 0.46 : 0.08 + Math.random() * 0.3;
-  const neitherScore = elevated ? 0.4 + Math.random() * 0.45 : 0.06 + Math.random() * 0.26;
-  const bothScore = elevated ? 0.4 + Math.random() * 0.45 : 0.06 + Math.random() * 0.26;
+function ingestSample(sample) {
+  const probabilities = sample.prediction.probabilities;
+  const cleanScore = probabilities.Clean;
+  const spoofScore = probabilities.Spoofing;
+  const jamScore = probabilities.Jamming;
+  const attackScore = sample.derived.combined_attack;
 
   updateSeries(state.attackSeries.spoofing, spoofScore);
   updateSeries(state.attackSeries.jamming, jamScore);
-  updateSeries(state.attackSeries.neither, neitherScore);
-  updateSeries(state.attackSeries.both, bothScore);
+  updateSeries(state.attackSeries.both, attackScore);
 
-  state.activeThreats.spoofing = spoofScore > 0.66;
-  state.activeThreats.jamming = jamScore > 0.66;
-  state.activeThreats.neither = neitherScore > 0.66;
-  state.activeThreats.both = bothScore > 0.66;
+  state.activeThreats.spoofing = sample.prediction.class_id === 1 || spoofScore > 0.5;
+  state.activeThreats.jamming = sample.prediction.class_id === 2 || jamScore > 0.5;
+  state.activeThreats.neither = sample.prediction.class_id === 0 && cleanScore >= Math.max(spoofScore, jamScore);
+  state.activeThreats.both = attackScore > 0.6;
 
-  const anyThreat = Object.values(state.activeThreats).some(Boolean);
+  const anyThreat = sample.prediction.class_id !== 0;
   state.systemMode = anyThreat ? "danger" : "normal";
-  state.confidence = Math.max(spoofScore, jamScore, bothScore);
+  state.confidence = sample.prediction.confidence;
+  state.currentFrame = `${sample.index + 1}/${sample.total} | day ${sample.day} | hour ${String(sample.hour).padStart(2, "0")}`;
+  state.currentPrediction = `${sample.prediction.label} (${Math.round(sample.prediction.confidence * 100)}%)`;
 
   if (anyThreat && !state.firstDetected) {
     state.firstDetected = new Date();
@@ -243,18 +250,120 @@ function renderAll() {
   drawAttackChart();
 }
 
+async function fetchNextSample() {
+  const response = await fetch("/api/next", {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`API request failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function fetchNextSampleFrom(index) {
+  const response = await fetch(`/api/next?start=${encodeURIComponent(index)}`, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`API request failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function resetStream(index) {
+  const response = await fetch(`/api/reset?index=${encodeURIComponent(index)}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Reset failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
 function boot() {
-  simulateState();
   renderAll();
 
-  setInterval(() => {
-    simulateState();
-    renderAll();
-  }, 2200);
+  let busy = false;
 
-  setInterval(() => {
-    renderStatus();
-  }, 1000);
+  const tick = async () => {
+    if (busy) {
+      return;
+    }
+
+    busy = true;
+    try {
+      const sample = await fetchNextSample();
+      ingestSample(sample);
+      renderAll();
+    } catch (error) {
+      state.currentPrediction = "Waiting for backend";
+      state.systemMode = "normal";
+      renderStatus();
+      console.error(error);
+    } finally {
+      busy = false;
+    }
+  };
+
+  const startButton = document.getElementById("startSampleButton");
+  const startInput = document.getElementById("startSampleInput");
+  const applyStart = async () => {
+    const nextStart = Number.parseInt(startInput.value, 10);
+    const safeStart = Number.isFinite(nextStart) && nextStart >= 0 ? nextStart : 0;
+    startInput.value = String(safeStart);
+    try {
+      const result = await resetStream(safeStart);
+      state.currentPrediction = `Starting at sample ${result.cursor}`;
+      state.firstDetected = null;
+      renderStatus();
+      await tick();
+    } catch (error) {
+      console.error(error);
+      state.currentPrediction = "Failed to jump";
+      renderStatus();
+    }
+  };
+
+  const autoStart = Number.isFinite(initialStartSample) && initialStartSample >= 0;
+
+  if (autoStart) {
+    startInput.value = String(initialStartSample);
+  }
+
+  startButton.addEventListener("click", applyStart);
+  startInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      applyStart();
+    }
+  });
+
+  if (autoStart) {
+    (async () => {
+      try {
+        const sample = await fetchNextSampleFrom(initialStartSample);
+        ingestSample(sample);
+        renderAll();
+      } catch (error) {
+        console.error(error);
+      }
+    })();
+  } else {
+    tick();
+  }
+  setInterval(tick, 1200);
 
   window.addEventListener("resize", renderAll);
 }
