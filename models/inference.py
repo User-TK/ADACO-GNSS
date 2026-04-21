@@ -44,7 +44,14 @@ class GNSSDetector:
         else:
             self.device = torch.device(device)
 
-        ckpt = torch.load(checkpoint_path, map_location=self.device)
+        try:
+            ckpt = torch.load(
+                checkpoint_path,
+                map_location=self.device,
+                weights_only=False,
+            )
+        except TypeError:
+            ckpt = torch.load(checkpoint_path, map_location=self.device)
 
         # Re-create model with same hyper-params used during training
         args = ckpt.get("args", {})

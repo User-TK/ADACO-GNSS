@@ -3,6 +3,9 @@
  
 # HDF5 file support
 h5py>=3.10.0
+
+# Web backend
+Flask>=3.0.0
  
 # Numerical computing (required by h5py and the pipeline)
 numpy>=1.26.0

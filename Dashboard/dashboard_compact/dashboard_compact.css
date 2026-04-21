@@ -158,6 +158,11 @@ p {
   border-color: #b51e27;
 }
 
+#neitherIndicator.active {
+  background: linear-gradient(90deg, #1e8f4d, #2fb36a);
+  border-color: #176f3d;
+}
+
 .overview-copy {
   color: var(--muted);
   line-height: 1.5;
