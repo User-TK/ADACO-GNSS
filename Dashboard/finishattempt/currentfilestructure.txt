@@ -1,0 +1,173 @@
+Project structure
+ADACO-GNSS-1/
+  backend/
+    main.py           ← FastAPI app
+    predictor.py      ← model loading and inference logic
+    schemas.py        ← request/response data models
+  models/
+    cnn_best.pt
+  demodata/
+    0.json
+    1.json
+    2.json
+    3.json
+    4.json
+    …
+
+1. schemas.py — define your input/output shape
+python
+from pydantic import BaseModel
+from typing import List
+
+class GNSSInput(BaseModel):
+    # scalar features — same 30 as your model expects
+    nav_pvt:      List[float]  # 15 values
+    nav_clock:    List[float]  # 4 values
+    nav_dop:      List[float]  # 7 values
+    nav_posecef:  List[float]  # 4 values
+    # spectrum — 2 RF blocks x 256 bins
+    spectrum_01:  List[float]  # 256 values
+    spectrum_02:  List[float]  # 256 values
+
+class PredictionOutput(BaseModel):
+    label:       int            # 0=Clean, 1=Spoofing, 2=Jamming
+    label_name:  str
+    confidence:  float          # probability of predicted class
+    probabilities: List[float]  # [P(clean), P(spoofing), P(jamming)]
+
+2. predictor.py — load model once, run inference
+python
+import torch
+import numpy as np
+from pathlib import Path
+from sklearn.preprocessing import StandardScaler
+from schemas import GNSSInput, PredictionOutput
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from spectrum_cnn import HybridGNSSCNN
+
+LABEL_NAMES = {0: "Clean", 1: "Spoofing", 2: "Jamming"}
+CHECKPOINT  = Path(__file__).parent.parent / "models" / "cnn_best.pt"
+
+class GNSSPredictor:
+    def __init__(self):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Predictor using device: {self.device}")
+
+        # load checkpoint once at startup
+        ckpt = torch.load(CHECKPOINT, map_location=self.device, weights_only=False)
+
+        self.scaler: StandardScaler = ckpt["scaler"]
+
+        self.model = HybridGNSSCNN(in_channels=2, scalar_dim=30).to(self.device)
+        self.model.load_state_dict(ckpt["model_state"])
+        self.model.eval()
+        print("Model loaded and ready")
+
+    def _normalise_spectrum(self, spec: np.ndarray) -> np.ndarray:
+        # z-score per block — same as GNSSDataset._normalise_spectrum
+        mean = spec.mean(axis=-1, keepdims=True)
+        std  = spec.std(axis=-1,  keepdims=True) + 1e-6
+        return (spec - mean) / std
+
+    def predict(self, data: GNSSInput) -> PredictionOutput:
+        # build scalar vector (1, 30)
+        scalar = np.array(
+            data.nav_pvt + data.nav_clock + data.nav_dop + data.nav_posecef,
+            dtype=np.float32
+        ).reshape(1, -1)
+        scalar = self.scaler.transform(scalar)
+
+        # build spectrum (1, 2, 256)
+        s1 = np.array(data.spectrum_01, dtype=np.float32)
+        s2 = np.array(data.spectrum_02, dtype=np.float32)
+        spec = np.stack([s1, s2], axis=0)[np.newaxis]  # (1, 2, 256)
+        spec = self._normalise_spectrum(spec)
+
+        # run inference
+        with torch.no_grad():
+            spec_t   = torch.from_numpy(spec).to(self.device)
+            scalar_t = torch.from_numpy(scalar).to(self.device)
+            logits   = self.model(spec_t, scalar_t)
+            probs    = torch.softmax(logits, dim=-1).cpu().numpy()[0]
+            label    = int(probs.argmax())
+
+        return PredictionOutput(
+            label=label,
+            label_name=LABEL_NAMES[label],
+            confidence=float(probs[label]),
+            probabilities=probs.tolist(),
+        )
+
+3. main.py — the FastAPI app
+python
+from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
+from schemas import GNSSInput, PredictionOutput
+from predictor import GNSSPredictor
+
+predictor = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # load model once when server starts
+    global predictor
+    predictor = GNSSPredictor()
+    yield
+    # cleanup on shutdown if needed
+
+app = FastAPI(
+    title="ADACO-GNSS Inference API",
+    description="Real-time GNSS spoofing and jamming detection",
+    lifespan=lifespan,
+)
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "model_loaded": predictor is not None}
+
+@app.post("/predict", response_model=PredictionOutput)
+def predict(data: GNSSInput):
+    if predictor is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    try:
+        return predictor.predict(data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+4. Install dependencies and run
+bash
+pip install fastapi uvicorn pydantic
+
+# run the server
+cd ADACO-GNSS-1/backend
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+5. Test it
+FastAPI gives you a free interactive docs page at:
+http://localhost:8000/docs
+Or test via curl:
+bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nav_pvt":     [0,1,8,51,0,0,100,5,5,0,200,0,0,0,0],
+    "nav_clock":   [0,0,100,10],
+    "nav_dop":     [1,1,1,1,1,1,1],
+    "nav_posecef": [3000000,1000000,5000000,100],
+    "spectrum_01": [0.0]*256,
+    "spectrum_02": [0.0]*256
+  }'
+Expected response:
+json
+{
+  "label": 0,
+  "label_name": "Clean",
+  "confidence": 0.95,
+  "probabilities": [0.95, 0.03, 0.02]
+}
+
+How real-time data flows in
+Your GNSS receiver sends one JSON payload per second to POST /predict and gets back a classification instantly. The model stays loaded in memory the whole time so each prediction takes only a few milliseconds. Want me to show you how to hook up a live data stream from a u-blox receiver to this endpoint?
+

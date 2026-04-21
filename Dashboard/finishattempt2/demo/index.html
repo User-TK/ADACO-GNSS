@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ADACO-GNSS Model Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboard_compact.css" />
+</head>
+<body>
+  <main class="dashboard-shell">
+    <section class="summary-column">
+      <article class="card status-card">
+        <div class="card-header">
+          <h2>System Status</h2>
+          <span class="status-pill normal" id="systemStatus">NORMAL</span>
+        </div>
+
+        <div class="status-meta">
+          <div class="meta-row">
+            <span class="meta-label">Predicted class</span>
+            <span class="meta-value" id="predictedLabel">Waiting for model...</span>
+          </div>
+
+          <div class="meta-row">
+            <span class="meta-label">Input sample</span>
+            <span class="meta-value" id="sourceFile">--</span>
+          </div>
+
+          <div class="meta-row">
+            <span class="meta-label">Class flags</span>
+            <div class="threat-indicators">
+              <span class="threat-pill" id="cleanIndicator">Clean</span>
+              <span class="threat-pill" id="spoofingIndicator">Spoofing</span>
+              <span class="threat-pill" id="jammingIndicator">Jamming</span>
+            </div>
+          </div>
+
+          <div class="meta-row">
+            <span class="meta-label">First threat detected</span>
+            <span class="meta-value" id="firstDetected">--:--:-- -- (-- ago)</span>
+          </div>
+
+          <div class="meta-row error-row" id="errorRow" hidden>
+            <span class="meta-label">API status</span>
+            <span class="meta-value error-text" id="errorText"></span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card overview-card">
+        <div class="card-header stacked">
+          <h2>Model Overview</h2>
+          <span class="confidence-value" id="confidenceScore">0%</span>
+        </div>
+
+        <div class="overview-copy">
+          Confidence of the model-selected class from the current randomly sampled JSON input.
+        </div>
+
+        <div class="progress-wrap" aria-label="Confidence score bar">
+          <div class="progress-fill" id="confidenceBar"></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="card chart-card">
+      <div class="card-header chart-header">
+        <div>
+          <h2>Attack Scores by Type</h2>
+          <p class="chart-caption">Recent window • model probability from 0 to 1</p>
+        </div>
+      </div>
+      <div class="chart-area">
+        <canvas id="attackScoreChart"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <script src="dashboard_model.js"></script>
+</body>
+</html>
