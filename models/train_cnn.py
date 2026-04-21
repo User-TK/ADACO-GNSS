@@ -204,16 +204,16 @@ def train(args):
     # --- build masks (identical logic to your RF baseline) ---
     print("Loading HDF5 metadata...")
     with h5py.File(args.h5, "r") as hf:
-        days  = hf["day"][:]
-        hours = hf["hour"][:]
-        N     = len(days)
+      days  = hf["day"][:]
+      hours = hf["hour"][:]
+      N     = len(days)
 
     seconds = np.zeros(N, dtype=np.int32)
     for d in np.unique(days):
-        for h in range(24):
-          idx = np.where((days==d) & (hours==h))[0]
-          if len(idx):
-            seconds[idx] = np.arange(len(idx))
+      for h in range(24):
+        idx = np.where((days==d) & (hours==h))[0]
+        if len(idx):
+          seconds[idx] = np.arange(len(idx))
 
     labels = compute_labels_batch(days, hours, seconds)
     is_spoofing = (labels == 1)
@@ -269,29 +269,25 @@ def train(args):
     test_ds  = GNSSDataset(args.h5, test_mask,  scalar_scaler=train_ds.scaler)
 
     sampler  = make_weighted_sampler(train_ds.labels)
-    train_dl = DataLoader(train_ds, batch_size=args.batch_size,
-                          sampler=sampler, num_workers=4, pin_memory=True)
-    val_dl   = DataLoader(val_ds,   batch_size=args.batch_size * 2,
-                          shuffle=False, num_workers=2, pin_memory=True)
-    test_dl  = DataLoader(test_ds,  batch_size=args.batch_size * 2,
-                          shuffle=False, num_workers=2, pin_memory=True)
+    train_dl = DataLoader(train_ds, batch_size=args.batch_size, sampler=sampler, num_workers=1, pin_memory=True)
+    val_dl = DataLoader(val_ds,   batch_size=args.batch_size * 2, shuffle=False, num_workers=1, pin_memory=True)
+    test_dl = DataLoader(test_ds,  batch_size=args.batch_size * 2, shuffle=False, num_workers=1, pin_memory=True)
 
     # --- model, loss, optimiser ---
-    model = HybridGNSSCNN(in_channels=GNSSDataset.N_RF_BLOCKS,
-                          scalar_dim=30).to(device)
+    model = HybridGNSSCNN(in_channels=GNSSDataset.N_RF_BLOCKS,scalar_dim=30).to(device)
 
-    alpha      = compute_class_weights(train_ds.labels, device)
-    criterion  = FocalLoss(alpha=alpha, gamma=2.0)
-    optimiser  = torch.optim.AdamW(model.parameters(), lr=args.lr,
-                                   weight_decay=1e-4)
+    alpha     = compute_class_weights(train_ds.labels, device)
+
+    criterion = FocalLoss(alpha=alpha, gamma=2.0)
+    optimiser  = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
 
     # Cosine annealing: warms up for 5 epochs then decays smoothly
     scheduler  = torch.optim.lr_scheduler.OneCycleLR(
-        optimiser,
-        max_lr       = args.lr,
-        epochs       = args.epochs,
-        steps_per_epoch = len(train_dl),
-        pct_start    = 0.1,
+      optimiser,
+      max_lr = args.lr,
+      epochs = args.epochs,
+      steps_per_epoch = len(train_dl),
+      pct_start = 0.1,
     )
 
     # --- training loop ---
@@ -299,52 +295,54 @@ def train(args):
     patience_left = args.patience
 
     for epoch in range(1, args.epochs + 1):
-        model.train()
-        running_loss = 0.0
+      # this is to make sure the model doesn't have to spend time restabilizing after first epoch. There is a big drop in the loss
+      model.train()
+      running_loss = 0.0
 
-        for spec, scalar, y in train_dl:
-            spec, scalar, y = spec.to(device), scalar.to(device), y.to(device)
-            optimiser.zero_grad()
-            logits = model(spec, scalar)
-            loss   = criterion(logits, y)
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimiser.step()
-            scheduler.step()
-            running_loss += loss.item() * y.size(0)
+      for spec, scalar, y in train_dl:
+        spec, scalar, y = spec.to(device), scalar.to(device), y.to(device)
+        optimiser.zero_grad()
+        logits = model(spec, scalar)
+        loss   = criterion(logits, y)
+        loss.backward()
+        nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimiser.step()
+        scheduler.step()
+        running_loss += loss.item() * y.size(0)
 
-        train_loss = running_loss / len(train_ds)
+      train_loss = running_loss / len(train_ds)
 
-        # validation
-        preds, targets, probs = evaluate(model, val_dl, device)
-        report = classification_report(
-            targets, preds, labels=[0, 1, 2],
-            target_names=["Clean", "Spoofing", "Jamming"],
-            output_dict=True, zero_division=0,
-        )
-        macro_f1 = report["macro avg"]["f1-score"]
+      # validation
+      preds, targets, probs = evaluate(model, val_dl, device)
+      report = classification_report(
+        targets, preds, labels=[0, 1, 2],
+        target_names=["Clean", "Spoofing", "Jamming"],
+        output_dict=True, zero_division=0,
+      )
+      macro_f1 = report["macro avg"]["f1-score"]
 
-        print(f"Epoch {epoch:3d}/{args.epochs}  "
-              f"loss={train_loss:.4f}  val_macro_f1={macro_f1:.4f}  "
-              f"lr={scheduler.get_last_lr()[0]:.2e}")
+      print(f"Epoch {epoch:3d}/{args.epochs}  "
+          f"loss={train_loss:.4f}  val_macro_f1={macro_f1:.4f}  "
+          f"lr={scheduler.get_last_lr()[0]:.2e}")
+      
 
-        # --- early stopping + best model checkpoint ---
-        if macro_f1 > best_val_f1:
-            best_val_f1 = macro_f1
-            torch.save({
-                "epoch":        epoch,
-                "model_state":  model.state_dict(),
-                "scaler":       train_ds.scaler,
-                "val_macro_f1": best_val_f1,
-                "args":         vars(args),
-            }, args.save_path)
-            patience_left = args.patience
-            print(f"  ✓ Saved best model (val_macro_f1={best_val_f1:.4f})")
-        else:
-            patience_left -= 1
-            if patience_left == 0:
-                print(f"Early stopping at epoch {epoch}")
-                break
+      # --- early stopping + best model checkpoint ---
+      if macro_f1 > best_val_f1:
+        best_val_f1 = macro_f1
+        torch.save({
+          "epoch":        epoch,
+          "model_state":  model.state_dict(),
+          "scaler":       train_ds.scaler,
+          "val_macro_f1": best_val_f1,
+          "args":         vars(args),
+        }, args.save_path)
+        patience_left = args.patience
+        print(f"  ✓ Saved best model (val_macro_f1={best_val_f1:.4f})")
+      else:
+        patience_left -= 1
+        if patience_left == 0:
+          print(f"Early stopping at epoch {epoch}")
+          break
 
     # --- final evaluation on test set ---
     print("\n=== Loading best checkpoint for test evaluation ===")
@@ -355,16 +353,15 @@ def train(args):
     preds, targets, probs = evaluate(model, test_dl, device)
 
     print("\n=== Test Classification Report ===")
-    print(classification_report(targets, preds, labels=[0, 1, 2],
-          target_names=["Clean", "Spoofing", "Jamming"], zero_division=0))
+    print(classification_report(targets, preds, labels=[0, 1, 2], target_names=["Clean", "Spoofing", "Jamming"], zero_division=0))
 
     print("=== Confusion Matrix (Clean=0, Spoofing=1, Jamming=2) ===")
     print(confusion_matrix(targets, preds, labels=[0, 1, 2]))
 
     n_classes_present = len(np.unique(targets))
     if n_classes_present > 2:
-        auc = roc_auc_score(targets, probs, multi_class="ovr")
-        print(f"\nAUC-ROC (OvR): {auc:.4f}")
+      auc = roc_auc_score(targets, probs, multi_class="ovr")
+      print(f"\nAUC-ROC (OvR): {auc:.4f}")
 
     return model
 
@@ -374,16 +371,16 @@ def train(args):
 # -----------------------------------------------------------------------
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train HybridGNSSCNN")
-    parser.add_argument("--h5",         required=True,
-                        help="Path to gnss_dataset.h5")
-    parser.add_argument("--epochs",     type=int,   default=40)
-    parser.add_argument("--batch-size", type=int,   default=256,
-                        dest="batch_size")
-    parser.add_argument("--lr",         type=float, default=3e-4)
-    parser.add_argument("--patience",   type=int,   default=8,
-                        help="Early-stopping patience (epochs)")
-    parser.add_argument("--save-path",  default="cnn_best.pt",
-                        dest="save_path")
-    args = parser.parse_args()
-    train(args)
+  parser = argparse.ArgumentParser(description="Train HybridGNSSCNN")
+  parser.add_argument("--h5",         required=True,
+                      help="Path to gnss_dataset.h5")
+  parser.add_argument("--epochs",     type=int,   default=40)
+  parser.add_argument("--batch-size", type=int,   default=256,
+                      dest="batch_size")
+  parser.add_argument("--lr",         type=float, default=3e-4)
+  parser.add_argument("--patience",   type=int,   default=8,
+                      help="Early-stopping patience (epochs)")
+  parser.add_argument("--save-path",  default="cnn_best.pt",
+                      dest="save_path")
+  args = parser.parse_args()
+  train(args)
