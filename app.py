@@ -13,11 +13,12 @@ ROOT = Path(__file__).resolve().parent
 MODEL_DIR = ROOT / "models"
 DATASET_PATH = ROOT / "datasets" / "gnss_dataset.h5"
 DASHBOARD_DIR = ROOT / "Dashboard" / "dashboard_compact"
+FULL_DASHBOARD_DIR = ROOT / "Dashboard"
 CHECKPOINT_PATH = MODEL_DIR / "cnn_best_gpu_run1.pt"
 
 sys.path.insert(0, str(MODEL_DIR))
 
-from inference import GNSSDetector
+from inference import GNSSDetector  # pyright: ignore[reportMissingImports]
 
 
 class LiveGNSSStream:
@@ -60,7 +61,18 @@ class LiveGNSSStream:
             axis=0,
         ).astype(np.float32, copy=False)
         scalar = self._build_scalar(index)
-        prediction = self._detector.predict_single(spectrum, scalar)
+        prediction = self._detector.predict_single_with_importance(spectrum, scalar)
+
+        sat = self._h5["nav_sat"][index]
+        sv_id = sat[:, 1]
+        cno = sat[:, 2]
+        pr_res = sat[:, 5]
+        valid_sat = sv_id != 255
+        valid_count = int(np.count_nonzero(valid_sat))
+        mean_cno = float(cno[valid_sat].mean()) if valid_count else 0.0
+        max_abs_pr_res = float(np.abs(pr_res[valid_sat]).max()) if valid_count else 0.0
+        clock_drift = float(self._h5["nav_clock"][index][1])
+        pdop = float(self._h5["nav_dop"][index][1])
 
         day = self._decode_day(self._h5["day"][index])
         hour = int(self._h5["hour"][index])
@@ -70,6 +82,11 @@ class LiveGNSSStream:
         combined_attack = float(
             min(1.0, probabilities["Spoofing"] + probabilities["Jamming"])
         )
+        rf_band_1583 = float(np.mean(spectrum[0]))
+        rf_band_1224 = float(np.mean(spectrum[1]))
+        display_label = "Safe" if prediction["class_id"] == 0 else prediction["label"]
+
+        prediction["display_label"] = display_label
 
         return {
             "index": index,
@@ -78,11 +95,22 @@ class LiveGNSSStream:
             "hour": hour,
             "ground_truth": ground_truth,
             "prediction": prediction,
+            "satellite": {
+                "num_sv_used": int(self._h5["nav_pvt"][index][2]),
+                "num_visible": valid_count,
+                "mean_cno": mean_cno,
+                "max_abs_pr_res": max_abs_pr_res,
+                "clock_drift": clock_drift,
+                "pdop": pdop,
+            },
             "derived": {
+                "safe": float(probabilities["Clean"]),
                 "clean": float(probabilities["Clean"]),
                 "spoofing": float(probabilities["Spoofing"]),
                 "jamming": float(probabilities["Jamming"]),
                 "combined_attack": combined_attack,
+                "rf_band_1583": rf_band_1583,
+                "rf_band_1224": rf_band_1224,
             },
         }
 
@@ -108,6 +136,17 @@ def root():
     return redirect("/dashboard_compact/dashboard_compact.html")
 
 
+@app.get("/dashboard/")
+@app.get("/dashboard/index.html")
+def dashboard_full():
+    return send_from_directory(FULL_DASHBOARD_DIR, "index.html")
+
+
+@app.get("/dashboard/<path:filename>")
+def dashboard_full_assets(filename: str):
+    return send_from_directory(FULL_DASHBOARD_DIR, filename)
+
+
 @app.get("/dashboard_compact/")
 @app.get("/dashboard_compact/dashboard_compact.html")
 def dashboard():
@@ -127,7 +166,7 @@ def api_meta():
             "dataset": "gnss_dataset.h5",
             "total_samples": stream.total_samples,
             "device": str(detector.device),
-            "classes": ["Clean", "Spoofing", "Jamming"],
+            "classes": ["Safe", "Spoofing", "Jamming"],
         }
     )
 

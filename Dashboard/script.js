@@ -1,25 +1,44 @@
+const API_BASE = "http://127.0.0.1:8000";
+const SERIES_LEN = 30;
+
+function initSeries() {
+  return new Array(SERIES_LEN).fill(null);
+}
+
 const state = {
   systemMode: "normal",
   confidence: 0.0,
   activeThreats: {
+    safe: true,
     spoofing: false,
     jamming: false,
-    clockAnomaly: false,
-    satGeometry: false,
   },
   firstDetected: null,
   healthStatus: "healthy",
   modelStatus: "active",
   dataStatus: "ingesting",
   rfSeries: {
-    band1583: new Array(30).fill(17),
-    band1224: new Array(30).fill(15),
+    band1583: initSeries(),
+    band1224: initSeries(),
+  },
+  satelliteSeries: {
+    numSvUsed: initSeries(),
+    meanCno: initSeries(),
+    maxAbsPrRes: initSeries(),
+    clockDrift: initSeries(),
+    pdop: initSeries(),
+  },
+  anomalySeries: {
+    clockDrift: initSeries(),
+    pdop: initSeries(),
+    cnoDrop: initSeries(),
+    prRes: initSeries(),
   },
   attackSeries: {
-    spoofing: new Array(30).fill(0.2),
-    jamming: new Array(30).fill(0.15),
-    clockAnomaly: new Array(30).fill(0.1),
-    satGeometry: new Array(30).fill(0.12),
+    spoofing: initSeries(),
+    jamming: initSeries(),
+    clockAnomaly: initSeries(),
+    satGeometry: initSeries(),
   },
   logFilter: "all",
   logs: [],
@@ -33,24 +52,6 @@ const featureImportanceData = [
   { name: "C/N0 Drop", value: 0.0, reason: "--" },
   { name: "Band Power Rise", value: 0.0, reason: "--" },
 ];
-
-const gnssTop = {
-  anomalousSats: [
-    { main: "--", sub: "--" },
-    { main: "--", sub: "--" },
-    { main: "--", sub: "--" },
-  ],
-  unstableSignals: [
-    { main: "--", sub: "--" },
-    { main: "--", sub: "--" },
-    { main: "--", sub: "--" },
-  ],
-  offenders: {
-    spoofingSat: "--",
-    jammingBand: "--",
-    worstPrResSat: "--",
-  },
-};
 
 const systemStartedAt = new Date();
 systemStartedAt.setHours(systemStartedAt.getHours() - 3);
@@ -84,6 +85,20 @@ function setStatusPill(el, text, cls) {
   el.textContent = text;
 }
 
+function applyLiveFeatureImportance(sample) {
+  const features = sample?.prediction?.feature_importance?.top_features ?? [];
+
+  if (!features.length) {
+    return;
+  }
+
+  featureImportanceData.splice(0, featureImportanceData.length, ...features.slice(0, featureImportanceData.length).map((feature) => ({
+    name: feature.name,
+    value: feature.value,
+    reason: feature.reason,
+  })));
+}
+
 function createFeatureBars() {
   const featureBars = document.getElementById("featureBars");
   featureBars.innerHTML = "";
@@ -102,21 +117,6 @@ function createFeatureBars() {
   });
 }
 
-function renderSignalLists() {
-  const anomalous = document.getElementById("anomalousSatList");
-  const unstable = document.getElementById("unstableSignalList");
-  anomalous.innerHTML = gnssTop.anomalousSats
-    .map((sat) => `<li><div class="sat-main">${sat.main}</div><div class="sat-sub">${sat.sub}</div></li>`)
-    .join("");
-  unstable.innerHTML = gnssTop.unstableSignals
-    .map((signal) => `<li><div class="sat-main">${signal.main}</div><div class="sat-sub">${signal.sub}</div></li>`)
-    .join("");
-
-  document.getElementById("spoofingSat").textContent = gnssTop.offenders.spoofingSat;
-  document.getElementById("jammingBand").textContent = gnssTop.offenders.jammingBand;
-  document.getElementById("worstPrResSat").textContent = gnssTop.offenders.worstPrResSat;
-}
-
 function renderMainStatus() {
   const statusPill = document.getElementById("systemStatus");
   const confidenceBar = document.getElementById("confidenceBar");
@@ -132,9 +132,9 @@ function renderMainStatus() {
   confidenceScore.textContent = `${Math.round(state.confidence * 100)}%`;
 
   [
+    ["safe", "safeIndicator"],
     ["spoofing", "spoofingIndicator"],
     ["jamming", "jammingIndicator"],
-    ["clockAnomaly", "clockIndicator"],
   ].forEach(([key, indicatorId]) => {
     const el = document.getElementById(indicatorId);
     el.classList.toggle("active", state.activeThreats[key]);
@@ -226,29 +226,43 @@ function drawMultiLineChart(canvasId, lines, options) {
   }
 
   lines.forEach((line) => {
+    let started = false;
     ctx.beginPath();
     line.data.forEach((value, i) => {
+      if (value === null || Number.isNaN(value)) {
+        return;
+      }
       const x = margin.left + (plotW / (line.data.length - 1)) * i;
       const ratio = (value - options.yMin) / (options.yMax - options.yMin || 1);
       const y = margin.top + (1 - ratio) * plotH;
-      if (i === 0) {
+      if (!started) {
         ctx.moveTo(x, y);
+        started = true;
       } else {
         ctx.lineTo(x, y);
       }
     });
 
+    if (!started) {
+      return;
+    }
+
     ctx.strokeStyle = line.color;
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    const endValue = line.data[line.data.length - 1];
+    const endValue = [...line.data].reverse().find((value) => value !== null && !Number.isNaN(value));
+    if (endValue === undefined) {
+      return;
+    }
+    const endIndex = line.data.lastIndexOf(endValue);
     const endX = w - margin.right;
     const endRatio = (endValue - options.yMin) / (options.yMax - options.yMin || 1);
     const endY = margin.top + (1 - endRatio) * plotH;
+    const endXAligned = margin.left + (plotW / (line.data.length - 1)) * endIndex;
     ctx.beginPath();
     ctx.fillStyle = line.color;
-    ctx.arc(endX, endY, 2.2, 0, Math.PI * 2);
+    ctx.arc(endXAligned, endY, 2.2, 0, Math.PI * 2);
     ctx.fill();
   });
 
@@ -276,6 +290,38 @@ function drawMultiLineChart(canvasId, lines, options) {
   ctx.textAlign = "center";
   ctx.fillText(options.yLabel, 0, 0);
   ctx.restore();
+}
+
+function drawLiveOverviewChart() {
+  drawMultiLineChart(
+    "liveOverviewChart",
+    [
+      { name: "Clock Drift Change", data: state.anomalySeries.clockDrift, color: "#c7363f" },
+      { name: "pDOP Change", data: state.anomalySeries.pdop, color: "#8f4bc9" },
+      { name: "C/N0 Drop", data: state.anomalySeries.cnoDrop, color: "#2b74c7" },
+      { name: "prRes Change", data: state.anomalySeries.prRes, color: "#d39419" },
+    ],
+    {
+      yMin: 0,
+      yMax: 1,
+      yLabel: "Anomaly Score",
+      yFormatter: (v) => v.toFixed(1),
+    },
+  );
+}
+
+function pushSeries(series, value) {
+  series.push(value);
+  series.shift();
+}
+
+function normalizedChange(current, previous, scale, invert = false) {
+  if (current === null || previous === null || !Number.isFinite(current) || !Number.isFinite(previous)) {
+    return null;
+  }
+  const delta = invert ? previous - current : current - previous;
+  const magnitude = Math.abs(delta) / scale;
+  return Math.max(0, Math.min(1, magnitude));
 }
 
 function renderLogs() {
@@ -461,16 +507,33 @@ function simulateMainState() {
   state.attackSeries.satGeometry.push(dopScore);
   state.attackSeries.satGeometry.shift();
 
+  const numSvUsed = 10 + Math.random() * 22;
+  const meanCno = 22 + Math.random() * 26;
+  const maxAbsPrRes = 4 + Math.random() * 24;
+  const clockDrift = Math.abs(0.1 + Math.random() * 2.3);
+  const pdop = 0.5 + Math.random() * 6;
+  const prevClock = state.satelliteSeries.clockDrift[state.satelliteSeries.clockDrift.length - 1];
+  const prevPdop = state.satelliteSeries.pdop[state.satelliteSeries.pdop.length - 1];
+  const prevCno = state.satelliteSeries.meanCno[state.satelliteSeries.meanCno.length - 1];
+  const prevPrRes = state.satelliteSeries.maxAbsPrRes[state.satelliteSeries.maxAbsPrRes.length - 1];
+  pushSeries(state.satelliteSeries.numSvUsed, numSvUsed);
+  pushSeries(state.satelliteSeries.meanCno, meanCno);
+  pushSeries(state.satelliteSeries.maxAbsPrRes, maxAbsPrRes);
+  pushSeries(state.satelliteSeries.clockDrift, clockDrift);
+  pushSeries(state.satelliteSeries.pdop, pdop);
+  pushSeries(state.anomalySeries.clockDrift, normalizedChange(clockDrift, prevClock, 0.4));
+  pushSeries(state.anomalySeries.pdop, normalizedChange(pdop, prevPdop, 0.8));
+  pushSeries(state.anomalySeries.cnoDrop, normalizedChange(prevCno, meanCno, 1.8, true));
+  pushSeries(state.anomalySeries.prRes, normalizedChange(maxAbsPrRes, prevPrRes, 2.5));
+
   state.activeThreats.spoofing = spoofScore > 0.66;
   state.activeThreats.jamming = jamScore > 0.66;
-  state.activeThreats.clockAnomaly = clockScore > 0.66;
-  state.activeThreats.satGeometry = dopScore > 0.66;
+  state.activeThreats.safe = !(state.activeThreats.spoofing || state.activeThreats.jamming);
 
   const anyThreat =
     state.activeThreats.spoofing
     || state.activeThreats.jamming
-    || state.activeThreats.clockAnomaly
-    || state.activeThreats.satGeometry;
+    || !state.activeThreats.safe;
 
   state.systemMode = anyThreat ? "danger" : "normal";
 
@@ -491,53 +554,17 @@ function simulateMainState() {
   const bandRise = 2 + Math.random() * 19;
 
   featureImportanceData[0].value = Math.min(1, prRes / 95);
-  featureImportanceData[0].reason = `NAV-SAT max prRes ${prRes.toFixed(1)} m indicates inconsistent pseudorange.`;
+  featureImportanceData[0].reason = `NAV-SAT prRes is satellite range error (${prRes.toFixed(1)} m). Large errors can indicate spoofing.`;
   featureImportanceData[1].value = Math.min(1, clkDrift / 2);
-  featureImportanceData[1].reason = `NAV-CLOCK clkD ${clkDrift.toFixed(2)} ns/s departs from stable drift profile.`;
+  featureImportanceData[1].reason = `NAV-CLOCK clkD is receiver clock drift (${clkDrift.toFixed(2)} ns/s). Unstable drift can indicate spoofing.`;
   featureImportanceData[2].value = Math.min(1, dopJump / 2.8);
-  featureImportanceData[2].reason = `NAV-DOP pDOP delta ${dopJump.toFixed(2)} suggests abrupt geometry changes.`;
+  featureImportanceData[2].reason = `NAV-DOP pDOP measures satellite geometry quality. Sudden change (+${dopJump.toFixed(2)}) can indicate abnormal geometry.`;
   featureImportanceData[3].value = Math.min(1, ecefJump / 30);
-  featureImportanceData[3].reason = `NAV-POSECEF jump ${ecefJump.toFixed(1)} m exceeds smooth-track expectation.`;
+  featureImportanceData[3].reason = `NAV-POSECEF shows receiver position in ECEF coordinates. Sudden jump (${ecefJump.toFixed(1)} m) can indicate spoofing.`;
   featureImportanceData[4].value = Math.min(1, cnoDrop / 17);
-  featureImportanceData[4].reason = `NAV-SAT mean C/N0 drop ${cnoDrop.toFixed(1)} dB-Hz degrades confidence.`;
+  featureImportanceData[4].reason = `NAV-SAT C/N0 is signal strength. A wide drop (${cnoDrop.toFixed(1)} dB-Hz) can indicate jamming.`;
   featureImportanceData[5].value = Math.min(1, bandRise / 20);
-  featureImportanceData[5].reason = `MON-SPAN band rise ${bandRise.toFixed(1)} dB over baseline matches jamming.`;
-
-  gnssTop.anomalousSats = [
-    {
-      main: randomSatellite(),
-      sub: `prRes ${prRes.toFixed(1)} m | cno ${(22 + Math.random() * 7).toFixed(1)} dB-Hz`,
-    },
-    {
-      main: randomSatellite(),
-      sub: `DOP-linked residual ${(38 + Math.random() * 45).toFixed(1)} m | elev ${(6 + Math.random() * 16).toFixed(1)} deg`,
-    },
-    {
-      main: randomSatellite(),
-      sub: `az ${(90 + Math.random() * 190).toFixed(0)} deg | prRes ${(35 + Math.random() * 55).toFixed(1)} m`,
-    },
-  ];
-
-  gnssTop.unstableSignals = [
-    {
-      main: "L1 C/N0 Variance",
-      sub: `${(8 + Math.random() * 5).toFixed(1)} dB over 60s rolling window`,
-    },
-    {
-      main: "RAWX Doppler Drift",
-      sub: `${(0.5 + Math.random() * 2.5).toFixed(2)} Hz/s across tracked satellites`,
-    },
-    {
-      main: "Carrier Phase Jump",
-      sub: `${(0.2 + Math.random() * 1.4).toFixed(2)} cycles median jump`,
-    },
-  ];
-
-  gnssTop.offenders.spoofingSat = state.activeThreats.spoofing ? randomSatellite() : "--";
-  gnssTop.offenders.jammingBand = state.activeThreats.jamming
-    ? (Math.random() > 0.5 ? "1583 MHz" : "1224 MHz")
-    : "--";
-  gnssTop.offenders.worstPrResSat = randomSatellite();
+  featureImportanceData[5].reason = `MON-SPAN is RF spectrum power. Broad rise (+${bandRise.toFixed(1)} dB) can indicate jamming.`;
 
   if (dangerMode || Math.random() > 0.6) {
     pushRandomLog();
@@ -551,10 +578,79 @@ function simulateMainState() {
   state.dataStatus = dataStates[Math.floor(Math.random() * dataStates.length)];
 }
 
+function ingestLiveSample(sample) {
+  const probabilities = sample.prediction.probabilities;
+  const importance = sample.prediction.feature_importance?.top_features ?? [];
+  const displayLabel = sample.prediction.display_label ?? sample.prediction.label;
+  const sat = sample.satellite;
+  const derived = sample.derived ?? {};
+
+  state.confidence = sample.prediction.confidence;
+  state.systemMode = sample.prediction.class_id === 0 ? "normal" : "danger";
+  state.activeThreats.safe = sample.prediction.class_id === 0;
+  state.activeThreats.spoofing = sample.prediction.class_id === 1 || probabilities.Spoofing > probabilities.Clean;
+  state.activeThreats.jamming = sample.prediction.class_id === 2 || probabilities.Jamming > probabilities.Clean;
+
+  state.attackSeries.spoofing.push(Math.max(0, Math.min(1, probabilities.Spoofing ?? 0)));
+  state.attackSeries.spoofing.shift();
+  state.attackSeries.jamming.push(Math.max(0, Math.min(1, probabilities.Jamming ?? 0)));
+  state.attackSeries.jamming.shift();
+
+  const band1583 = typeof derived.rf_band_1583 === "number" ? derived.rf_band_1583 : state.rfSeries.band1583[state.rfSeries.band1583.length - 1];
+  const band1224 = typeof derived.rf_band_1224 === "number" ? derived.rf_band_1224 : state.rfSeries.band1224[state.rfSeries.band1224.length - 1];
+  state.rfSeries.band1583.push(Math.max(0, Math.min(40, band1583)));
+  state.rfSeries.band1583.shift();
+  state.rfSeries.band1224.push(Math.max(0, Math.min(40, band1224)));
+  state.rfSeries.band1224.shift();
+
+  if (sat) {
+    const nextNumSvUsed = Math.max(0, Math.min(70, sat.num_sv_used ?? 0));
+    const nextMeanCno = Math.max(0, Math.min(70, sat.mean_cno ?? 0));
+    const nextMaxAbsPrRes = Math.max(0, Math.min(70, sat.max_abs_pr_res ?? 0));
+    const nextClockDrift = Math.max(0, Math.min(70, Math.abs(sat.clock_drift ?? 0)));
+    const nextPdop = Math.max(0, Math.min(70, sat.pdop ?? 0));
+
+    const prevClock = state.satelliteSeries.clockDrift[state.satelliteSeries.clockDrift.length - 1];
+    const prevPdop = state.satelliteSeries.pdop[state.satelliteSeries.pdop.length - 1];
+    const prevCno = state.satelliteSeries.meanCno[state.satelliteSeries.meanCno.length - 1];
+    const prevPrRes = state.satelliteSeries.maxAbsPrRes[state.satelliteSeries.maxAbsPrRes.length - 1];
+
+    pushSeries(state.satelliteSeries.numSvUsed, nextNumSvUsed);
+    pushSeries(state.satelliteSeries.meanCno, nextMeanCno);
+    pushSeries(state.satelliteSeries.maxAbsPrRes, nextMaxAbsPrRes);
+    pushSeries(state.satelliteSeries.clockDrift, nextClockDrift);
+    pushSeries(state.satelliteSeries.pdop, nextPdop);
+    pushSeries(state.anomalySeries.clockDrift, normalizedChange(nextClockDrift, prevClock, 0.4));
+    pushSeries(state.anomalySeries.pdop, normalizedChange(nextPdop, prevPdop, 0.8));
+    pushSeries(state.anomalySeries.cnoDrop, normalizedChange(prevCno, nextMeanCno, 1.8, true));
+    pushSeries(state.anomalySeries.prRes, normalizedChange(nextMaxAbsPrRes, prevPrRes, 2.5));
+  }
+
+  if (state.systemMode === "danger" && !state.firstDetected) {
+    state.firstDetected = new Date();
+  }
+  if (state.systemMode === "normal") {
+    state.firstDetected = null;
+  }
+
+  if (importance.length) {
+    featureImportanceData.splice(0, featureImportanceData.length, ...importance.slice(0, featureImportanceData.length).map((feature) => ({
+      name: feature.name,
+      value: feature.value,
+      reason: feature.reason,
+    })));
+  }
+
+  const predictionEl = document.getElementById("currentPrediction");
+  if (predictionEl) {
+    predictionEl.textContent = `${displayLabel} (${Math.round(sample.prediction.confidence * 100)}%)`;
+  }
+}
+
 function renderAll() {
   renderMainStatus();
   createFeatureBars();
-  renderSignalLists();
+  drawLiveOverviewChart();
   drawMultiLineChart(
     "rfChart",
     [
@@ -571,10 +667,20 @@ function renderAll() {
   drawMultiLineChart(
     "attackScoreChart",
     [
+      {
+        name: "Safe",
+        data: state.attackSeries.spoofing.map((_, i) => {
+          const spoof = state.attackSeries.spoofing[i];
+          const jam = state.attackSeries.jamming[i];
+          if (spoof === null || jam === null) {
+            return null;
+          }
+          return 1 - Math.max(spoof, jam);
+        }),
+        color: "#1e8f4d",
+      },
       { name: "Spoof", data: state.attackSeries.spoofing, color: "#d39419" },
       { name: "Jam", data: state.attackSeries.jamming, color: "#8f4bc9" },
-      { name: "Clock", data: state.attackSeries.clockAnomaly, color: "#2b74c7" },
-      { name: "DOP", data: state.attackSeries.satGeometry, color: "#1e8f4d" },
     ],
     {
       yMin: 0,
@@ -585,6 +691,35 @@ function renderAll() {
   );
   renderLogs();
   renderHealth();
+}
+
+async function fetchNextSample() {
+  const response = await fetch(`${API_BASE}/api/next`, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`API request failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function resetStream(index) {
+  const response = await fetch(`${API_BASE}/api/reset?index=${encodeURIComponent(index)}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Reset failed with ${response.status}`);
+  }
+
+  return response.json();
 }
 
 function setupTabs() {
@@ -623,13 +758,45 @@ function boot() {
     pushRandomLog();
   }
 
-  simulateMainState();
-  renderAll();
+  const tick = async () => {
+    try {
+      const sample = await fetchNextSample();
+      ingestLiveSample(sample);
+    } catch (error) {
+      simulateMainState();
+      console.error(error);
+    }
 
-  setInterval(() => {
-    simulateMainState();
     renderAll();
-  }, 2200);
+  };
+
+  const jumpInput = document.getElementById("healthJumpInput");
+  const jumpButton = document.getElementById("healthJumpButton");
+  const applyJump = async () => {
+    const parsed = Number.parseInt(jumpInput.value, 10);
+    const safeIndex = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    jumpInput.value = String(safeIndex);
+
+    try {
+      await resetStream(safeIndex);
+      await tick();
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  if (jumpButton && jumpInput) {
+    jumpButton.addEventListener("click", applyJump);
+    jumpInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        applyJump();
+      }
+    });
+  }
+
+  tick();
+
+  setInterval(tick, 2200);
 
   setInterval(() => {
     renderMainStatus();

@@ -51,7 +51,7 @@ p {
 .summary-column {
   min-height: 0;
   display: grid;
-  grid-template-rows: 1fr 0.9fr;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -69,6 +69,13 @@ p {
   gap: 16px;
   padding: 18px;
   align-content: start;
+}
+
+.feature-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  min-height: 0;
 }
 
 .chart-card {
@@ -167,6 +174,67 @@ p {
   color: var(--muted);
   line-height: 1.5;
   font-size: 0.96rem;
+}
+
+.feature-note {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.feature-bars {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+}
+
+.feature-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.2fr) 1fr 48px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(248, 252, 253, 0.92);
+  border: 1px solid #e1ecef;
+}
+
+.feature-meta {
+  min-width: 0;
+}
+
+.feature-name {
+  color: #294148;
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.feature-reason {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+.feature-track {
+  height: 10px;
+  border-radius: 999px;
+  background: #e8eff2;
+  overflow: hidden;
+}
+
+.feature-value {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2ec4b6, #0fa3b1);
+}
+
+.feature-score {
+  text-align: right;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  color: #2d4a52;
 }
 
 .confidence-value {

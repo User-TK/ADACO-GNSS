@@ -18,9 +18,9 @@
             <span class="pill" id="systemStatus">NORMAL</span>
           </div>
           <div class="threat-indicators">
+            <div class="threat-pill" id="safeIndicator">Safe</div>
             <div class="threat-pill" id="spoofingIndicator">Spoofing</div>
             <div class="threat-pill" id="jammingIndicator">Jamming</div>
-            <div class="threat-pill" id="clockIndicator">Clock Anomaly</div>
           </div>
         </div>
         <p class="detect-time" id="firstDetected">First detected: --:--:-- -- (-- ago)</p>
@@ -42,21 +42,17 @@
         <div class="feature-bars" id="featureBars"></div>
       </section>
 
-      <section class="panel-card offenders-card">
-        <h2>Top Offenders</h2>
-        <div class="offender-grid">
-          <div class="offender-item">
-            <span class="offender-label">Spoofing Satellite</span>
-            <span class="offender-value" id="spoofingSat">--</span>
-          </div>
-          <div class="offender-item">
-            <span class="offender-label">Jamming Band</span>
-            <span class="offender-value" id="jammingBand">--</span>
-          </div>
-          <div class="offender-item">
-            <span class="offender-label">Worst prRes Satellite</span>
-            <span class="offender-value" id="worstPrResSat">--</span>
-          </div>
+      <section class="panel-card left-charts-card">
+        <div class="mini-chart-card">
+          <h3>RF Band Anomaly (1583/1224)</h3>
+          <p class="chart-caption">X-axis: recent time window | Y-axis: relative power (dB)</p>
+          <canvas id="rfChart"></canvas>
+        </div>
+
+        <div class="mini-chart-card">
+          <h3>Attack Scores By Type</h3>
+          <p class="chart-caption">X-axis: recent time window | Y-axis: normalized score (0-1)</p>
+          <canvas id="attackScoreChart"></canvas>
         </div>
       </section>
     </aside>
@@ -66,40 +62,27 @@
         <div class="traffic-layout">
           <div class="traffic-top">
             <div class="mini-chart-card">
-              <h3>RF Band Anomaly (1583/1224)</h3>
-              <p class="chart-caption">X-axis: recent time window | Y-axis: relative power (dB)</p>
-              <canvas id="rfChart"></canvas>
-            </div>
-
-            <div class="mini-chart-card">
-              <h3>Attack Scores By Type</h3>
-              <p class="chart-caption">X-axis: recent time window | Y-axis: normalized score (0-1)</p>
-              <canvas id="attackScoreChart"></canvas>
-            </div>
-
-            <div class="ip-list-card">
-              <h3>Top 3 Anomalous Satellites</h3>
-              <ul id="anomalousSatList"></ul>
-            </div>
-
-            <div class="ip-list-card">
-              <h3>Top 3 Unstable Signals</h3>
-              <ul id="unstableSignalList"></ul>
+              <h3>Live Satellite Data</h3>
+              <p class="chart-caption">X-axis: recent time window | Y-axis: satellite metrics</p>
+              <canvas id="liveOverviewChart"></canvas>
             </div>
           </div>
 
           <div class="traffic-bottom">
-            <div class="log-controls">
-              <input type="text" id="logSearch" placeholder="Search events, stream, satellite, or type..." />
-              <div class="filters" id="filters">
-                <button class="filter-btn active" data-filter="all">All</button>
-                <button class="filter-btn" data-filter="spoofing">Spoofing</button>
-                <button class="filter-btn" data-filter="jamming">Jamming</button>
-                <button class="filter-btn" data-filter="clock-anomaly">Clock</button>
-                <button class="filter-btn" data-filter="sat-geometry">DOP</button>
+            <div class="history-card">
+              <h3>Feature History</h3>
+              <div class="log-controls">
+                <input type="text" id="logSearch" placeholder="Search events, stream, satellite, or type..." />
+                <div class="filters" id="filters">
+                  <button class="filter-btn active" data-filter="all">All</button>
+                  <button class="filter-btn" data-filter="spoofing">Spoofing</button>
+                  <button class="filter-btn" data-filter="jamming">Jamming</button>
+                  <button class="filter-btn" data-filter="clock-anomaly">Clock</button>
+                  <button class="filter-btn" data-filter="sat-geometry">DOP</button>
+                </div>
               </div>
+              <div class="event-log" id="eventLog"></div>
             </div>
-            <div class="event-log" id="eventLog"></div>
           </div>
         </div>
       </section>
@@ -108,8 +91,16 @@
         <div class="health-layout">
           <section class="panel-card health-card">
             <h2>System</h2>
-            <p id="systemUptime">System uptime: --:--:-- (since --/--/-- --:--)</p>
-            <p id="lastUpdated">Last updated: --:--:--</p>
+            <div class="system-meta-row">
+              <div class="system-meta-text">
+                <p id="systemUptime">System uptime: --:--:-- (since --/--/-- --:--)</p>
+                <p id="lastUpdated">Last updated: --:--:--</p>
+              </div>
+              <div class="jump-controls" aria-label="Jump to timestamp or sample index">
+                <input id="healthJumpInput" type="number" min="0" step="1" value="0" placeholder="Sample index" />
+                <button id="healthJumpButton" type="button">Jump</button>
+              </div>
+            </div>
             <div class="status-line">
               <span>System Health Status</span>
               <span class="status-pill healthy" id="systemHealthStatus">HEALTHY</span>

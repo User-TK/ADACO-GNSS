@@ -5,6 +5,7 @@ const state = {
   confidence: 0.22,
   currentFrame: 0,
   currentPrediction: "Waiting for data",
+  featureImportance: [],
   activeThreats: {
     spoofing: false,
     jamming: false,
@@ -44,6 +45,28 @@ function setStatusPill(el, text, cls) {
   el.classList.remove("normal", "danger");
   el.classList.add(cls);
   el.textContent = text;
+}
+
+function renderFeatureImportances() {
+  const featureBars = document.getElementById("featureBars");
+
+  if (!state.featureImportance.length) {
+    featureBars.innerHTML = '<div class="feature-row"><div class="feature-meta"><div class="feature-name">Waiting for live saliency</div><div class="feature-reason">Feature scores will appear after the first prediction.</div></div><div class="feature-track"><div class="feature-value" style="width:0%"></div></div><div class="feature-score">0%</div></div>';
+    return;
+  }
+
+  featureBars.innerHTML = state.featureImportance
+    .map((feature) => `
+      <div class="feature-row">
+        <div class="feature-meta">
+          <div class="feature-name">${feature.name}</div>
+          <div class="feature-reason">${feature.reason}</div>
+        </div>
+        <div class="feature-track"><div class="feature-value" style="width:${Math.round(feature.value * 100)}%"></div></div>
+        <div class="feature-score">${Math.round(feature.value * 100)}%</div>
+      </div>
+    `)
+    .join("");
 }
 
 function renderStatus() {
@@ -223,6 +246,7 @@ function ingestSample(sample) {
   const spoofScore = probabilities.Spoofing;
   const jamScore = probabilities.Jamming;
   const attackScore = sample.derived.combined_attack;
+  const importance = sample.prediction.feature_importance?.top_features ?? [];
 
   updateSeries(state.attackSeries.spoofing, spoofScore);
   updateSeries(state.attackSeries.jamming, jamScore);
@@ -238,6 +262,7 @@ function ingestSample(sample) {
   state.confidence = sample.prediction.confidence;
   state.currentFrame = `${sample.index + 1}/${sample.total} | day ${sample.day} | hour ${String(sample.hour).padStart(2, "0")}`;
   state.currentPrediction = `${sample.prediction.label} (${Math.round(sample.prediction.confidence * 100)}%)`;
+  state.featureImportance = importance;
 
   if (anyThreat && !state.firstDetected) {
     state.firstDetected = new Date();
@@ -249,6 +274,7 @@ function ingestSample(sample) {
 
 function renderAll() {
   renderStatus();
+  renderFeatureImportances();
   drawAttackChart();
 }
 
