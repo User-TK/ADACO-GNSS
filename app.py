@@ -12,7 +12,7 @@ from flask import Flask, jsonify, redirect, request, send_from_directory
 ROOT = Path(__file__).resolve().parent
 MODEL_DIR = ROOT / "models"
 DATASET_PATH = ROOT / "datasets" / "gnss_dataset.h5"
-DASHBOARD_DIR = ROOT / "Dashboard" / "dashboard_compact"
+DASHBOARD_DIR = ROOT / "Dashboard"
 FULL_DASHBOARD_DIR = ROOT / "Dashboard"
 CHECKPOINT_PATH = MODEL_DIR / "cnn_best_gpu_run1.pt"
 
@@ -133,7 +133,7 @@ def add_no_cache_headers(response):
 
 @app.get("/")
 def root():
-    return redirect("/dashboard_compact/dashboard_compact.html")
+    return redirect("/dashboard/index.html")
 
 
 @app.get("/dashboard/")
