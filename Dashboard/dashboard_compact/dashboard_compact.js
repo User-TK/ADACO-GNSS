@@ -10,14 +10,12 @@ const state = {
     spoofing: false,
     jamming: false,
     neither: false,
-    both: false,
   },
   firstDetected: null,
   attackSeries: {
     spoofing: new Array(30).fill(0.18),
     jamming: new Array(30).fill(0.14),
     neither: new Array(30).fill(0.1),
-    both: new Array(30).fill(0.1),
   },
 };
 
@@ -90,7 +88,6 @@ function renderStatus() {
     ["spoofing", "spoofingIndicator"],
     ["jamming", "jammingIndicator"],
     ["neither", "neitherIndicator"],
-    ["both", "bothIndicator"],
   ].forEach(([key, id]) => {
     document.getElementById(id).classList.toggle("active", state.activeThreats[key]);
   });
@@ -126,7 +123,6 @@ function drawAttackChart() {
   const lines = [
     { name: "Spoofing", data: state.attackSeries.spoofing, color: "#0f766e" },
     { name: "Jamming", data: state.attackSeries.jamming, color: "#b45309" },
-    { name: "Attack", data: state.attackSeries.both, color: "#14532d" },
   ];
 
   const { ctx, w, h } = getCanvasContext2D("attackScoreChart");
@@ -250,12 +246,12 @@ function ingestSample(sample) {
 
   updateSeries(state.attackSeries.spoofing, spoofScore);
   updateSeries(state.attackSeries.jamming, jamScore);
-  updateSeries(state.attackSeries.both, attackScore);
+
 
   state.activeThreats.spoofing = sample.prediction.class_id === 1 || spoofScore > 0.5;
   state.activeThreats.jamming = sample.prediction.class_id === 2 || jamScore > 0.5;
   state.activeThreats.neither = sample.prediction.class_id === 0 && cleanScore >= Math.max(spoofScore, jamScore);
-  state.activeThreats.both = attackScore > 0.6;
+
 
   const anyThreat = sample.prediction.class_id !== 0;
   state.systemMode = anyThreat ? "danger" : "normal";

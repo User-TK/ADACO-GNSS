@@ -196,6 +196,46 @@ def api_reset():
     return jsonify({"ok": True, "cursor": cursor, "total": stream.total_samples})
 
 
+@app.post("/api/predict")
+def api_predict():
+    """
+    Accept a single real-time GNSS sample from a live receiver.
+    Expected JSON body:
+    {
+        "nav_pvt":     [15 floats],
+        "nav_clock":   [4 floats],
+        "nav_dop":     [7 floats],
+        "nav_posecef": [4 floats],
+        "spectrum_01": [256 floats],
+        "spectrum_02": [256 floats]
+    }
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No JSON body provided"}), 400
+
+    try:
+        # build scalar vector — same order as training
+        scalar = np.concatenate([np.array(data["nav_pvt"], dtype=np.float32),
+            np.array(data["nav_clock"], dtype=np.float32), np.array(data["nav_dop"], dtype=np.float32), np.array(data["nav_posecef"], dtype=np.float32),
+        ])
+
+        # build spectrum — same stacking as GNSSDataset
+        spectrum = np.stack([np.array(data["spectrum_01"], dtype=np.float32), np.array(data["spectrum_02"], dtype=np.float32),
+        ], axis=0)
+
+        # run inference using the same detector already loaded
+        prediction = detector.predict_single_with_importance(spectrum, scalar)
+        display_label = "Safe" if prediction["class_id"] == 0 else prediction["label"]
+        prediction["display_label"] = display_label
+
+        return jsonify(prediction)
+
+    except KeyError as e:
+        return jsonify({"error": f"Missing field: {e}"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == "__main__":
     try:
         app.run(host="127.0.0.1", port=8000, debug=False, threaded=True)
