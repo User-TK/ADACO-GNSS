@@ -408,20 +408,19 @@ canvas {
   background: #fdfefe;
 }
 
-.log-item.spoofing {
-  border-left-color: #d39419;
+/* Safe entries: green */
+.log-item.safe {
+  border-left-color: var(--success);
+  background: #f1fbf6;
 }
 
-.log-item.jamming {
-  border-left-color: #8f4bc9;
-}
-
-.log-item.clock-anomaly {
-  border-left-color: #2b74c7;
-}
-
+/* Attacks: red */
+.log-item.spoofing,
+.log-item.jamming,
+.log-item.clock-anomaly,
 .log-item.sat-geometry {
-  border-left-color: #1e8f4d;
+  border-left-color: var(--danger);
+  background: #fff6f6;
 }
 
 .log-head {

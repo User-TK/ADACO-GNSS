@@ -20,6 +20,7 @@ const state = {
   rfSeries: {
     band1583: initSeries(),
     band1224: initSeries(),
+    bandDelta: initSeries(),
   },
   satelliteSeries: {
     numSvUsed: initSeries(),
@@ -40,8 +41,8 @@ const state = {
     clockAnomaly: initSeries(),
     satGeometry: initSeries(),
   },
+  healthSnapshot: null,
   logFilter: "all",
-  logs: [],
 };
 
 const featureImportanceData = [
@@ -53,14 +54,15 @@ const featureImportanceData = [
   { name: "Band Power Rise", value: 0.0, reason: "--" },
 ];
 
-const systemStartedAt = new Date();
-systemStartedAt.setHours(systemStartedAt.getHours() - 3);
-
-function randomSatellite() {
-  const gnss = ["GPS", "GLO", "GAL", "BDS"];
-  const svId = Math.floor(1 + Math.random() * 32);
-  return `${gnss[Math.floor(Math.random() * gnss.length)]}-${String(svId).padStart(2, "0")}`;
-}
+const defaultHealthSnapshot = {
+  updated_at: null,
+  boot_time: null,
+  uptime_seconds: null,
+  system: { status: "unknown", metrics: [] },
+  model: { status: "unknown", metrics: [] },
+  data: { status: "unknown", metrics: [] },
+  history: [],
+};
 
 function formatTime(date) {
   return date.toLocaleTimeString([], {
@@ -77,6 +79,13 @@ function formatDuration(ms) {
   const mm = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0");
   const ss = String(seconds % 60).padStart(2, "0");
   return `${hh}:${mm}:${ss}`;
+}
+
+function formatSnapshotUptime(seconds) {
+  if (seconds === null || seconds === undefined || Number.isNaN(seconds)) {
+    return "--:--:--";
+  }
+  return formatDuration(seconds * 1000);
 }
 
 function setStatusPill(el, text, cls) {
@@ -266,8 +275,13 @@ function drawMultiLineChart(canvasId, lines, options) {
     ctx.fill();
   });
 
-  let legendX = margin.left;
-  lines.forEach((line) => {
+  const legendOffset = options && typeof options.legendOffset === "number" ? options.legendOffset : 0;
+  const legendStartX = margin.left + legendOffset;
+  const legendEndX = w - margin.right;
+  const legendSlotW = Math.max(1, (legendEndX - legendStartX) / Math.max(lines.length, 1));
+
+  lines.forEach((line, index) => {
+    const legendX = legendStartX + index * legendSlotW;
     ctx.strokeStyle = line.color;
     ctx.lineWidth = 2.4;
     ctx.beginPath();
@@ -279,7 +293,6 @@ function drawMultiLineChart(canvasId, lines, options) {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillText(line.name, legendX + 14, 8);
-    legendX += Math.min(88, line.name.length * 7 + 24);
   });
 
   ctx.save();
@@ -306,6 +319,7 @@ function drawLiveOverviewChart() {
       yMax: 1,
       yLabel: "Anomaly Score",
       yFormatter: (v) => v.toFixed(1),
+      legendOffset: 24,
     },
   );
 }
@@ -327,16 +341,17 @@ function normalizedChange(current, previous, scale, invert = false) {
 function renderLogs() {
   const logSearch = document.getElementById("logSearch").value.toLowerCase();
   const logEl = document.getElementById("eventLog");
+  const history = state.healthSnapshot?.history ?? [];
 
-  const visible = state.logs.filter((log) => {
+  const visible = history.filter((log) => {
     const filterHit = state.logFilter === "all" || log.type === state.logFilter;
     const searchHit =
-      `${log.message} ${log.stream} ${log.satellite} ${log.type}`.toLowerCase().includes(logSearch);
+      `${log.message} ${log.stream} ${log.satellite} ${log.type} ${log.label} ${log.sample_index}`.toLowerCase().includes(logSearch);
     return filterHit && searchHit;
   });
 
   if (!visible.length) {
-    logEl.innerHTML = '<div class="log-item">No events match this filter.</div>';
+    logEl.innerHTML = '<div class="log-item">No real sample history is available yet.</div>';
     return;
   }
 
@@ -345,10 +360,10 @@ function renderLogs() {
       (log) => `
       <article class="log-item ${log.type}">
         <div class="log-head">
-          <span>${log.ts}</span>
+          <span>${formatTime(new Date(log.ts))}</span>
           <span>${log.type.toUpperCase()}</span>
         </div>
-        <div class="log-text">${log.message} | ${log.stream} | sat: ${log.satellite}</div>
+        <div class="log-text">${log.message}${log.stream ? ' | ' + log.stream : ''}</div>
       </article>
     `,
     )
@@ -369,13 +384,16 @@ function metricsTemplate(items) {
 }
 
 function renderHealth() {
-  const now = new Date();
-  const uptime = Date.now() - systemStartedAt.getTime();
-  const uptimeStr = formatDuration(uptime);
-  const sinceStr = `${String(systemStartedAt.getMonth() + 1).padStart(2, "0")}/${String(systemStartedAt.getDate()).padStart(2, "0")}/${String(systemStartedAt.getFullYear()).slice(-2)} ${systemStartedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const snapshot = state.healthSnapshot ?? defaultHealthSnapshot;
+  const uptimeStr = formatSnapshotUptime(snapshot.uptime_seconds);
+  const bootTime = snapshot.boot_time ? new Date(snapshot.boot_time) : null;
+  const sinceStr = bootTime
+    ? `${String(bootTime.getMonth() + 1).padStart(2, "0")}/${String(bootTime.getDate()).padStart(2, "0")}/${String(bootTime.getFullYear()).slice(-2)} ${bootTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+    : "--/--/-- --:--";
+  const updatedAt = snapshot.updated_at ? new Date(snapshot.updated_at) : null;
 
   document.getElementById("systemUptime").textContent = `System uptime: ${uptimeStr} (since ${sinceStr})`;
-  document.getElementById("lastUpdated").textContent = `Last updated: ${formatTime(now)}`;
+  document.getElementById("lastUpdated").textContent = `Last updated: ${updatedAt ? formatTime(updatedAt) : "--:--:--"}`;
 
   const systemHealthEl = document.getElementById("systemHealthStatus");
   const modelStatusEl = document.getElementById("modelStatus");
@@ -385,197 +403,34 @@ function renderHealth() {
     healthy: ["HEALTHY", "healthy"],
     degraded: ["DEGRADED", "degraded"],
     critical: ["CRITICAL", "critical"],
+    unknown: ["UNAVAILABLE", "degraded"],
   };
 
   const modelMap = {
     active: ["ACTIVE", "healthy"],
     delayed: ["DELAYED", "degraded"],
     failed: ["FAILED", "critical"],
+    unknown: ["UNAVAILABLE", "degraded"],
   };
 
   const dataMap = {
     ingesting: ["INGESTING", "healthy"],
     lagging: ["LAGGING", "degraded"],
     dropped: ["DROPPED", "critical"],
+    unknown: ["UNAVAILABLE", "degraded"],
   };
 
-  const [systemText, systemClass] = systemMap[state.healthStatus];
-  const [modelText, modelClass] = modelMap[state.modelStatus];
-  const [dataText, dataClass] = dataMap[state.dataStatus];
+  const [systemText, systemClass] = systemMap[snapshot.system.status] ?? systemMap.unknown;
+  const [modelText, modelClass] = modelMap[snapshot.model.status] ?? modelMap.unknown;
+  const [dataText, dataClass] = dataMap[snapshot.data.status] ?? dataMap.unknown;
 
   setStatusPill(systemHealthEl, systemText, systemClass);
   setStatusPill(modelStatusEl, modelText, modelClass);
   setStatusPill(dataStatusEl, dataText, dataClass);
 
-  const cpu = `${(22 + Math.random() * 38).toFixed(1)}%`;
-  const gpu = `${(18 + Math.random() * 45).toFixed(1)}%`;
-  const ram = `${(45 + Math.random() * 35).toFixed(1)}%`;
-  const diskIo = `${(150 + Math.random() * 280).toFixed(0)} MB/s`;
-  const netLatency = `${(3 + Math.random() * 12).toFixed(1)} ms`;
-
-  const inferenceLatency = `${(8 + Math.random() * 24).toFixed(2)} ms`;
-  const predSec = `${(430 + Math.random() * 180).toFixed(0)} /s`;
-  const queueDepth = `${Math.floor(2 + Math.random() * 25)}`;
-  const batchSize = `${Math.floor(16 + Math.random() * 48)}`;
-  const modelVersion = "v0.0-placeholder";
-
-  const packetsCap = `${(38000 + Math.random() * 6000).toFixed(0)} /s`;
-  const packetsDrop = `${(8 + Math.random() * 40).toFixed(0)} /s`;
-  const dropRate = `${(Math.random() * 0.6).toFixed(2)}%`;
-  const lagSec = `${(Math.random() * 3.5).toFixed(2)} s`;
-  const queueUtil = `${(24 + Math.random() * 34).toFixed(1)}%`;
-  const pvtRate = `${(8 + Math.random() * 4).toFixed(1)} Hz`;
-  const satRate = `${(4 + Math.random() * 2).toFixed(1)} Hz`;
-  const rawxRate = `${(8 + Math.random() * 5).toFixed(1)} Hz`;
-
-  document.getElementById("systemMetrics").innerHTML = metricsTemplate([
-    { name: "CPU Usage", value: cpu },
-    { name: "GPU Usage", value: gpu },
-    { name: "RAM Usage", value: ram },
-    { name: "Disk IO", value: diskIo },
-    { name: "Network Latency", value: netLatency },
-    { name: "Thread Count", value: `${Math.floor(120 + Math.random() * 40)}` },
-  ]);
-
-  document.getElementById("modelMetrics").innerHTML = metricsTemplate([
-    { name: "Inference Latency", value: inferenceLatency },
-    { name: "Predictions/s", value: predSec },
-    { name: "Queue Depth", value: queueDepth },
-    { name: "Batch Size", value: batchSize },
-    { name: "Model Version", value: modelVersion },
-    { name: "Drift Score", value: `${(Math.random() * 0.2).toFixed(3)}` },
-  ]);
-
-  document.getElementById("dataMetrics").innerHTML = metricsTemplate([
-    { name: "Packets Captured/s", value: packetsCap },
-    { name: "Packets Dropped/s", value: packetsDrop },
-    { name: "Drop Rate", value: dropRate },
-    { name: "Ingestion Lag", value: lagSec },
-    { name: "NAV-PVT Rate", value: pvtRate },
-    { name: "RAWX Rate", value: rawxRate },
-  ]);
-}
-
-function pushRandomLog() {
-  const types = ["spoofing", "jamming", "clock-anomaly", "sat-geometry"];
-  const type = types[Math.floor(Math.random() * types.length)];
-  const now = new Date();
-  const streams = ["MON-SPAN", "NAV-CLOCK", "NAV-DOP", "NAV-SAT", "NAV-PVT", "RXM-RAWX"];
-  const messages = {
-    spoofing: "Spoof signature matched pseudorange residual inconsistency",
-    jamming: "RF power abnormal rise detected in protected GNSS band",
-    "clock-anomaly": "Receiver clock bias/drift exceeded expected baseline",
-    "sat-geometry": "DOP jump suggests geometry inconsistency",
-  };
-
-  state.logs.unshift({
-    ts: formatTime(now),
-    type,
-    stream: streams[Math.floor(Math.random() * streams.length)],
-    satellite: randomSatellite(),
-    message: messages[type],
-  });
-
-  if (state.logs.length > 80) {
-    state.logs.pop();
-  }
-}
-
-function simulateMainState() {
-  const dangerMode = Math.random() > 0.68;
-
-  const addPoint = (series, delta, min, max) => {
-    const next = Math.max(min, Math.min(max, series[series.length - 1] + (Math.random() * delta * 2 - delta)));
-    series.push(next);
-    series.shift();
-  };
-
-  addPoint(state.rfSeries.band1583, dangerMode ? 2.9 : 1.4, 6, 38);
-  addPoint(state.rfSeries.band1224, dangerMode ? 2.4 : 1.2, 5, 34);
-
-  const spoofScore = dangerMode ? 0.55 + Math.random() * 0.4 : Math.random() * 0.45;
-  const jamScore = dangerMode ? 0.52 + Math.random() * 0.42 : Math.random() * 0.4;
-  const clockScore = dangerMode ? 0.48 + Math.random() * 0.44 : Math.random() * 0.35;
-  const dopScore = dangerMode ? 0.46 + Math.random() * 0.42 : Math.random() * 0.35;
-
-  state.attackSeries.spoofing.push(spoofScore);
-  state.attackSeries.spoofing.shift();
-  state.attackSeries.jamming.push(jamScore);
-  state.attackSeries.jamming.shift();
-  state.attackSeries.clockAnomaly.push(clockScore);
-  state.attackSeries.clockAnomaly.shift();
-  state.attackSeries.satGeometry.push(dopScore);
-  state.attackSeries.satGeometry.shift();
-
-  const numSvUsed = 10 + Math.random() * 22;
-  const meanCno = 22 + Math.random() * 26;
-  const maxAbsPrRes = 4 + Math.random() * 24;
-  const clockDrift = Math.abs(0.1 + Math.random() * 2.3);
-  const pdop = 0.5 + Math.random() * 6;
-  const prevClock = state.satelliteSeries.clockDrift[state.satelliteSeries.clockDrift.length - 1];
-  const prevPdop = state.satelliteSeries.pdop[state.satelliteSeries.pdop.length - 1];
-  const prevCno = state.satelliteSeries.meanCno[state.satelliteSeries.meanCno.length - 1];
-  const prevPrRes = state.satelliteSeries.maxAbsPrRes[state.satelliteSeries.maxAbsPrRes.length - 1];
-  pushSeries(state.satelliteSeries.numSvUsed, numSvUsed);
-  pushSeries(state.satelliteSeries.meanCno, meanCno);
-  pushSeries(state.satelliteSeries.maxAbsPrRes, maxAbsPrRes);
-  pushSeries(state.satelliteSeries.clockDrift, clockDrift);
-  pushSeries(state.satelliteSeries.pdop, pdop);
-  pushSeries(state.anomalySeries.clockDrift, normalizedChange(clockDrift, prevClock, 0.4));
-  pushSeries(state.anomalySeries.pdop, normalizedChange(pdop, prevPdop, 0.8));
-  pushSeries(state.anomalySeries.cnoDrop, normalizedChange(prevCno, meanCno, 1.8, true));
-  pushSeries(state.anomalySeries.prRes, normalizedChange(maxAbsPrRes, prevPrRes, 2.5));
-
-  state.activeThreats.spoofing = spoofScore > 0.66;
-  state.activeThreats.jamming = jamScore > 0.66;
-  state.activeThreats.safe = !(state.activeThreats.spoofing || state.activeThreats.jamming);
-
-  const anyThreat =
-    state.activeThreats.spoofing
-    || state.activeThreats.jamming
-    || !state.activeThreats.safe;
-
-  state.systemMode = anyThreat ? "danger" : "normal";
-
-  if (anyThreat && !state.firstDetected) {
-    state.firstDetected = new Date();
-  }
-  if (!anyThreat) {
-    state.firstDetected = null;
-  }
-
-  state.confidence = Math.max(spoofScore, jamScore, clockScore, dopScore);
-
-  const prRes = 28 + Math.random() * 86;
-  const clkDrift = 0.15 + Math.random() * 1.95;
-  const dopJump = 0.2 + Math.random() * 2.7;
-  const ecefJump = 0.8 + Math.random() * 28;
-  const cnoDrop = 1.5 + Math.random() * 16;
-  const bandRise = 2 + Math.random() * 19;
-
-  featureImportanceData[0].value = Math.min(1, prRes / 95);
-  featureImportanceData[0].reason = `NAV-SAT prRes is satellite range error (${prRes.toFixed(1)} m). Large errors can indicate spoofing.`;
-  featureImportanceData[1].value = Math.min(1, clkDrift / 2);
-  featureImportanceData[1].reason = `NAV-CLOCK clkD is receiver clock drift (${clkDrift.toFixed(2)} ns/s). Unstable drift can indicate spoofing.`;
-  featureImportanceData[2].value = Math.min(1, dopJump / 2.8);
-  featureImportanceData[2].reason = `NAV-DOP pDOP measures satellite geometry quality. Sudden change (+${dopJump.toFixed(2)}) can indicate abnormal geometry.`;
-  featureImportanceData[3].value = Math.min(1, ecefJump / 30);
-  featureImportanceData[3].reason = `NAV-POSECEF shows receiver position in ECEF coordinates. Sudden jump (${ecefJump.toFixed(1)} m) can indicate spoofing.`;
-  featureImportanceData[4].value = Math.min(1, cnoDrop / 17);
-  featureImportanceData[4].reason = `NAV-SAT C/N0 is signal strength. A wide drop (${cnoDrop.toFixed(1)} dB-Hz) can indicate jamming.`;
-  featureImportanceData[5].value = Math.min(1, bandRise / 20);
-  featureImportanceData[5].reason = `MON-SPAN is RF spectrum power. Broad rise (+${bandRise.toFixed(1)} dB) can indicate jamming.`;
-
-  if (dangerMode || Math.random() > 0.6) {
-    pushRandomLog();
-  }
-
-  const healthStates = ["healthy", "degraded", "critical"];
-  const modelStates = ["active", "delayed", "failed"];
-  const dataStates = ["ingesting", "lagging", "dropped"];
-  state.healthStatus = healthStates[Math.floor(Math.random() * healthStates.length)];
-  state.modelStatus = modelStates[Math.floor(Math.random() * modelStates.length)];
-  state.dataStatus = dataStates[Math.floor(Math.random() * dataStates.length)];
+  document.getElementById("systemMetrics").innerHTML = metricsTemplate(snapshot.system.metrics ?? []);
+  document.getElementById("modelMetrics").innerHTML = metricsTemplate(snapshot.model.metrics ?? []);
+  document.getElementById("dataMetrics").innerHTML = metricsTemplate(snapshot.data.metrics ?? []);
 }
 
 function ingestLiveSample(sample) {
@@ -598,10 +453,12 @@ function ingestLiveSample(sample) {
 
   const band1583 = typeof derived.rf_band_1583 === "number" ? derived.rf_band_1583 : state.rfSeries.band1583[state.rfSeries.band1583.length - 1];
   const band1224 = typeof derived.rf_band_1224 === "number" ? derived.rf_band_1224 : state.rfSeries.band1224[state.rfSeries.band1224.length - 1];
+  const bandDelta = typeof derived.rf_band_delta === "number" ? derived.rf_band_delta : band1583 - band1224;
   state.rfSeries.band1583.push(Math.max(0, Math.min(40, band1583)));
   state.rfSeries.band1583.shift();
   state.rfSeries.band1224.push(Math.max(0, Math.min(40, band1224)));
   state.rfSeries.band1224.shift();
+  pushSeries(state.rfSeries.bandDelta, bandDelta);
 
   if (sat) {
     const nextNumSvUsed = Math.max(0, Math.min(70, sat.num_sv_used ?? 0));
@@ -654,13 +511,12 @@ function renderAll() {
   drawMultiLineChart(
     "rfChart",
     [
-      { name: "1583MHz", data: state.rfSeries.band1583, color: "#0f9ea8" },
-      { name: "1224MHz", data: state.rfSeries.band1224, color: "#2b74c7" },
+      { name: "RF Delta", data: state.rfSeries.bandDelta, color: "#0f766e" },
     ],
     {
-      yMin: 0,
-      yMax: 40,
-      yLabel: "Power (dB)",
+      yMin: -25,
+      yMax: 25,
+      yLabel: "Delta (dB)",
       yFormatter: (v) => `${Math.round(v)}`,
     },
   );
@@ -702,6 +558,20 @@ async function fetchNextSample() {
 
   if (!response.ok) {
     throw new Error(`API request failed with ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function fetchHealthSnapshot() {
+  const response = await fetch(`${API_BASE}/api/health`, {
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Health request failed with ${response.status}`);
   }
 
   return response.json();
@@ -754,16 +624,21 @@ function boot() {
   setupTabs();
   setupFilters();
 
-  for (let i = 0; i < 12; i += 1) {
-    pushRandomLog();
-  }
+  const refreshHealth = async () => {
+    try {
+      state.healthSnapshot = await fetchHealthSnapshot();
+    } catch (error) {
+      console.error(error);
+    }
+
+    renderHealth();
+  };
 
   const tick = async () => {
     try {
       const sample = await fetchNextSample();
       ingestLiveSample(sample);
     } catch (error) {
-      simulateMainState();
       console.error(error);
     }
 
@@ -795,13 +670,10 @@ function boot() {
   }
 
   tick();
+  refreshHealth();
 
   setInterval(tick, 2200);
-
-  setInterval(() => {
-    renderMainStatus();
-    renderHealth();
-  }, 1000);
+  setInterval(refreshHealth, 1000);
 
   window.addEventListener("resize", () => {
     renderAll();
