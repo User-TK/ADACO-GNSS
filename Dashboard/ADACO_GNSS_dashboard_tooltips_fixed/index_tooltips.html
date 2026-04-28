@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GNSS Intrusion Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="styles_tooltips.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="left-panel">
+      <section class="panel-card status-card">
+        <div class="status-row">
+          <div class="system-status" id="systemStatusWrap">
+            <span class="label tip" tabindex="0" data-tooltip="Overall dashboard classification for the most recent GNSS sample. NORMAL means no active attack is currently selected; DANGER means spoofing or jamming is currently suspected.">System Status:</span>
+            <span class="pill tip" id="systemStatus" tabindex="0" data-tooltip="Current high-level operating state produced from the model output and active threat flags.">NORMAL</span>
+          </div>
+          <div class="threat-indicators">
+            <div class="threat-pill tip" id="safeIndicator" tabindex="0" data-tooltip="Safe indicates the model currently favors the clean, non-attack class for the incoming GNSS sample.">Safe</div>
+            <div class="threat-pill tip" id="spoofingIndicator" tabindex="0" data-tooltip="Spoofing means the signal may be intentionally misleading the receiver about position, timing, or satellite consistency.">Spoofing</div>
+            <div class="threat-pill tip" id="jammingIndicator" tabindex="0" data-tooltip="Jamming means the receiver may be experiencing radio-frequency interference that raises noise or disrupts GNSS reception.">Jamming</div>
+          </div>
+        </div>
+        <p class="detect-time tip" id="firstDetected" tabindex="0" data-tooltip="Shows when the current non-safe condition first appeared in this dashboard session and how long it has remained active.">First detected: --:--:-- -- (-- ago)</p>
+      </section>
+
+      <section class="panel-card model-overview-card">
+        <h2 class="tip" tabindex="0" data-tooltip="Summary of the model's current prediction strength for the latest GNSS input.">Model Overview</h2>
+        <div class="stat-line">
+          <span class="tip" tabindex="0" data-tooltip="The model's confidence in the class it currently selected. High confidence does not guarantee correctness; it should be interpreted with the class probabilities and context.">Confidence Score</span>
+          <span class="tip" id="confidenceScore" tabindex="0" data-tooltip="Percentage confidence for the current top prediction.">--%</span>
+        </div>
+        <div class="progress-wrap tip" tabindex="0" data-tooltip="Visual bar representation of the current confidence score.">
+          <div class="progress-fill" id="confidenceBar"></div>
+        </div>
+      </section>
+
+      <section class="panel-card feature-card">
+        <h2 class="tip" tabindex="0" data-tooltip="Model-facing input factors that most influenced the current prediction, such as clock drift, C/N0 changes, and RF band power.">Feature Importances</h2>
+        <div class="feature-bars" id="featureBars"></div>
+      </section>
+
+      <section class="panel-card left-charts-card">
+        <div class="mini-chart-card">
+          <h3 class="tip" tabindex="0" data-tooltip="Tracks relative RF power in two monitored GNSS-related bands. Sudden broad power increases may support a jamming interpretation.">RF Band Anomaly (1583/1224)</h3>
+          <p class="chart-caption tip" tabindex="0" data-tooltip="The horizontal axis shows recent samples; the vertical axis shows relative RF power in dB. Use it to see whether power is stable or rapidly changing.">X-axis: recent time window | Y-axis: relative power (dB)</p>
+          <canvas id="rfChart"></canvas>
+        </div>
+
+        <div class="mini-chart-card">
+          <h3 class="tip" tabindex="0" data-tooltip="Plots recent normalized model scores for safe, spoofing, and jamming classes so changes can be seen over time.">Attack Scores By Type</h3>
+          <p class="chart-caption tip" tabindex="0" data-tooltip="Scores closer to 1 indicate stronger model support for that class. The displayed class is usually the highest score, but operators should watch trends as well.">X-axis: recent time window | Y-axis: normalized score (0-1)</p>
+          <canvas id="attackScoreChart"></canvas>
+        </div>
+      </section>
+    </aside>
+
+    <main class="right-panel">
+      <section class="tab-view active" id="trafficTab" aria-label="Traffic Tab">
+        <div class="traffic-layout">
+          <div class="traffic-top">
+            <div class="mini-chart-card">
+              <h3 class="tip" tabindex="0" data-tooltip="Shows recent receiver-derived anomaly indicators from satellite and navigation measurements.">Live Satellite Data</h3>
+              <p class="chart-caption tip" tabindex="0" data-tooltip="The horizontal axis shows recent samples; the vertical axis shows normalized anomaly scores from satellite, clock, C/N0, and pseudorange residual behavior.">X-axis: recent time window | Y-axis: satellite metrics</p>
+              <canvas id="liveOverviewChart"></canvas>
+            </div>
+          </div>
+
+          <div class="traffic-bottom">
+            <div class="history-card">
+              <h3 class="tip" tabindex="0" data-tooltip="Chronological list of recent model-relevant events and derived anomalies. Use it to inspect why the dashboard is changing state.">Feature History</h3>
+              <div class="log-controls">
+                <input class="tip" type="text" id="logSearch" placeholder="Search events, stream, satellite, or type..." tabindex="0" data-tooltip="Search the event history by event text, GNSS message stream, satellite identifier, or alert type." />
+                <div class="filters" id="filters">
+                  <button class="filter-btn active tip" data-filter="all" tabindex="0" data-tooltip="Show every event type in the history list.">All</button>
+                  <button class="filter-btn tip" data-filter="spoofing" tabindex="0" data-tooltip="Show only spoofing-related events, such as pseudorange or position inconsistencies.">Spoofing</button>
+                  <button class="filter-btn tip" data-filter="jamming" tabindex="0" data-tooltip="Show only jamming-related events, such as RF power increases or C/N0 drops.">Jamming</button>
+                  <button class="filter-btn tip" data-filter="clock-anomaly" tabindex="0" data-tooltip="Show only receiver clock bias or drift anomalies.">Clock</button>
+                  <button class="filter-btn tip" data-filter="sat-geometry" tabindex="0" data-tooltip="Show only satellite geometry or DOP-related anomalies.">DOP</button>
+                </div>
+              </div>
+              <div class="event-log" id="eventLog"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-view" id="healthTab" aria-label="System Health Tab">
+        <div class="health-layout">
+          <section class="panel-card health-card">
+            <h2 class="tip" tabindex="0" data-tooltip="Operational health of the dashboard runtime and local machine resources.">System</h2>
+            <div class="system-meta-row">
+              <div class="system-meta-text">
+                <p class="tip" id="systemUptime" tabindex="0" data-tooltip="How long this dashboard session has been running, plus the approximate session start time.">System uptime: --:--:-- (since --/--/-- --:--)</p>
+                <p class="tip" id="lastUpdated" tabindex="0" data-tooltip="Most recent time the dashboard refreshed its displayed system and model values.">Last updated: --:--:--</p>
+              </div>
+              <div class="jump-controls" aria-label="Jump to timestamp or sample index">
+                <input class="tip" id="healthJumpInput" type="number" min="0" step="1" value="0" placeholder="Sample index" tabindex="0" data-tooltip="Choose a dataset sample index and restart the demonstration stream from that point." />
+                <button class="tip" id="healthJumpButton" type="button" tabindex="0" data-tooltip="Apply the selected sample index and request the next prediction from that point in the data stream.">Jump</button>
+              </div>
+            </div>
+            <div class="status-line">
+              <span class="tip" tabindex="0" data-tooltip="Combined health state of the dashboard process and local resource indicators.">System Health Status</span>
+              <span class="status-pill healthy tip" id="systemHealthStatus" tabindex="0" data-tooltip="HEALTHY means normal behavior; DEGRADED means reduced performance; CRITICAL means serious runtime or resource issues.">HEALTHY</span>
+            </div>
+            <div class="metric-grid" id="systemMetrics"></div>
+          </section>
+
+          <section class="panel-card health-card">
+            <h2 class="tip" tabindex="0" data-tooltip="Status of the loaded GNSS detection model and prediction pipeline.">Model Status</h2>
+            <div class="status-line">
+              <span class="tip" tabindex="0" data-tooltip="Whether model inference is active, delayed, or failed.">Model Pipeline</span>
+              <span class="status-pill healthy tip" id="modelStatus" tabindex="0" data-tooltip="ACTIVE means predictions are being produced; DELAYED means predictions may be behind; FAILED means the model pipeline is not functioning.">ACTIVE</span>
+            </div>
+            <div class="metric-grid" id="modelMetrics"></div>
+          </section>
+
+          <section class="panel-card health-card">
+            <h2 class="tip" tabindex="0" data-tooltip="Status of the live or replayed GNSS data feed entering the model pipeline.">Data Status</h2>
+            <div class="status-line">
+              <span class="tip" tabindex="0" data-tooltip="Whether input data is being read normally, lagging, or dropping samples.">Ingestion Status</span>
+              <span class="status-pill healthy tip" id="dataStatus" tabindex="0" data-tooltip="INGESTING means data is arriving normally; LAGGING means delayed input; DROPPED means samples are being missed.">INGESTING</span>
+            </div>
+            <div class="metric-grid" id="dataMetrics"></div>
+          </section>
+        </div>
+      </section>
+
+      <nav class="tab-controls" aria-label="Dashboard Tabs">
+        <button class="tab-btn active tip" data-tab="trafficTab" tabindex="0" data-tooltip="Open the main monitoring view with charts, attack scores, feature importance, and event history.">Traffic</button>
+        <button class="tab-btn tip" data-tab="healthTab" tabindex="0" data-tooltip="Open runtime, model, and data-ingestion health information.">System Health</button>
+      </nav>
+    </main>
+  </div>
+
+  <script src="script_tooltips.js"></script>
+</body>
+</html>
